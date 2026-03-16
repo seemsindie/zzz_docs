@@ -1,0 +1,260 @@
+---
+title: "Performance Tuning"
+description: "Optimize your zzz application for production with compile-time routing, backend selection, response compression, buffer sizing, and connection tuning."
+---
+
+import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
+
+zzz is designed for performance from the ground up. Routes are resolved at compile time, middleware chains are inlined by the compiler, and the I/O layer is pluggable. This guide covers the knobs you can turn to get the most out of your deployment.
+
+## Compile-time routing
+
+One of zzz's most significant performance advantages is that route definitions, pattern matching, and middleware composition are all resolved at `comptime`.
+
+### How it works
+
+When you define a router, every route pattern is parsed into segments at compile time:
+
+```zig
+const App = Router.define(.{
+    .routes = &.{
+        Router.get("/users/:id", getUserHandler),
+        Router.get("/posts/*path", catchAllHandler),
+    },
+});
+```
+
+The `compilePattern` function converts `"/users/:id"` into a slice of `Segment` values (`.static`, `.param`, `.wildcard`) that are embedded directly in the binary. At runtime, `matchSegments` walks the request path against these pre-computed segments -- there is no parsing, no hash table lookup, and no heap allocation during dispatch.
+
+### Middleware inlining
+
+The middleware pipeline is also assembled at compile time. The `dispatch` function chains global middleware and the route dispatcher into a single call sequence:
+
+```zig
+const route_dispatcher = comptime makeRouteDispatcher(config);
+const pipeline = comptime config.middleware ++ &[_]HandlerFn{route_dispatcher};
+const entry = comptime makePipelineEntry(pipeline);
+```
+
+Because every function pointer in the chain is `comptime`-known, the Zig compiler can inline the entire pipeline in `ReleaseFast` builds, eliminating indirect call overhead.
+
+### What this means in practice
+
+- **Zero allocation** for route matching -- no regex compilation, no trie traversal, no string interning.
+- **No indirect calls** in optimized builds -- the middleware pipeline compiles down to a linear sequence of inlined function bodies.
+- **Named routes at zero cost** -- `pathFor("user_path")` resolves to a string literal at compile time.
+
+## I/O backend selection
+
+The choice of backend has a direct impact on throughput and latency characteristics.
+
+<Tabs>
+<TabItem label="zzz (thread pool)">
+
+The default backend uses a thread pool with a bounded queue. It excels when:
+
+- Handlers perform CPU-intensive work (JSON serialization, template rendering).
+- You want straightforward concurrency via OS threads.
+- The number of concurrent connections is moderate (hundreds to low thousands).
+
+Tune the thread pool for your workload:
+
+```zig
+const config: Server.Config = .{
+    .worker_threads = 8,     // match your CPU core count
+    .max_connections = 2048, // bounded queue capacity
+    .kernel_backlog = 256,   // TCP listen backlog
+};
+```
+
+</TabItem>
+<TabItem label="libhv (event loop)">
+
+The libhv backend uses a single-threaded event loop with platform-native I/O multiplexing (epoll on Linux, kqueue on macOS). It excels when:
+
+- You have a high number of concurrent connections (thousands+).
+- Workloads are I/O-bound (proxying, WebSocket relaying).
+- You need built-in timer support.
+
+Build with the libhv backend:
+
+```sh
+zig build run -Dbackend=libhv
+```
+
+</TabItem>
+</Tabs>
+
+See [Server Backends](/advanced/server-backends/) for a detailed comparison.
+
+## Response compression
+
+The `gzipCompress` middleware compresses response bodies using gzip when the client sends `Accept-Encoding: gzip`. It only compresses when the result is actually smaller than the original.
+
+### Configuration
+
+```zig
+pub const CompressConfig = struct {
+    min_size: usize = 256,  // skip compression for bodies smaller than this
+};
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `min_size` | 256 bytes | Minimum response body size to attempt compression. Bodies below this threshold are sent uncompressed. |
+
+### Usage
+
+```zig
+const App = Router.define(.{
+    .middleware = &.{
+        gzipCompress(.{ .min_size = 512 }),
+    },
+    .routes = &.{ ... },
+});
+```
+
+### How it works
+
+<Steps>
+
+1. The middleware calls `ctx.next()` first, letting the downstream handler produce a response.
+
+2. It checks that the response body exceeds `min_size` and that the client sent `Accept-Encoding: gzip`.
+
+3. If the response already has a `Content-Encoding` header, compression is skipped (avoiding double-encoding).
+
+4. The body is compressed using Zig's `std.compress.flate` with gzip framing and the default compression level.
+
+5. If the compressed output is smaller than the original, it replaces the body and `Content-Encoding: gzip` and `Vary: Accept-Encoding` headers are added. If compression did not reduce the size, the original body is kept.
+
+</Steps>
+
+### Tuning tips
+
+- Set `min_size` to at least 150-256 bytes. Compressing tiny responses adds CPU overhead without meaningful bandwidth savings.
+- JSON API responses and HTML templates typically compress well (60-80% reduction).
+- Binary data (images, already-compressed files) should not be compressed. If you serve static files with the `static` middleware, consider placing compression after the static middleware so it only applies to dynamic responses, or filter by content type in a custom middleware.
+
+## Connection and timeout tuning
+
+The `Server.Config` struct provides several options that affect how connections are managed.
+
+### Buffer sizes
+
+```zig
+const config: Server.Config = .{
+    .max_body_size = 10 * 1024 * 1024,  // 10 MB for file uploads
+    .max_header_size = 32768,            // 32 KB for large cookies/auth headers
+};
+```
+
+| Setting | Default | Guidance |
+|---------|---------|----------|
+| `max_body_size` | 1 MB | Increase for file upload endpoints. Keep low for API-only services to reject oversized payloads early. |
+| `max_header_size` | 16 KB | Increase if your application uses large cookies or JWT tokens in headers. |
+
+### Timeouts
+
+```zig
+const config: Server.Config = .{
+    .read_timeout_ms = 15_000,       // 15s - tighter for APIs
+    .write_timeout_ms = 60_000,      // 60s - generous for streaming responses
+    .keepalive_timeout_ms = 30_000,  // 30s - shorter to reclaim idle connections
+};
+```
+
+| Setting | Default | Guidance |
+|---------|---------|----------|
+| `read_timeout_ms` | 30 s | How long to wait for request data. Tighten for APIs, loosen for slow clients. |
+| `write_timeout_ms` | 30 s | How long to wait for response send to complete. Increase for large downloads or streaming. |
+| `keepalive_timeout_ms` | 65 s | Idle timeout for keep-alive connections. Shorter values free connections faster under high load. |
+
+### Connection limits
+
+```zig
+const config: Server.Config = .{
+    .max_connections = 4096,
+    .max_requests_per_connection = 200,
+    .kernel_backlog = 512,
+};
+```
+
+| Setting | Default | Guidance |
+|---------|---------|----------|
+| `max_connections` | 1024 | Bounded queue capacity (zzz backend). Size this to your expected peak concurrent connections. |
+| `max_requests_per_connection` | 100 | Limits HTTP pipelining on a single connection. Higher values improve throughput for keep-alive clients. |
+| `kernel_backlog` | 128 | TCP `SO_BACKLOG` for pending connections. Increase for bursty traffic patterns. |
+
+## Worker thread sizing
+
+For the native zzz backend, the `worker_threads` setting controls how many OS threads handle connections:
+
+```zig
+const config: Server.Config = .{
+    .worker_threads = 0,  // auto: defaults to 1 thread
+};
+```
+
+Guidelines for setting `worker_threads`:
+
+- **CPU-bound handlers** (template rendering, JSON serialization): set to the number of CPU cores.
+- **I/O-bound handlers** (database queries, HTTP calls to other services): set to 2-4x the core count, since threads will spend time waiting.
+- **Mixed workloads**: start at the core count and benchmark up.
+
+## Production build flags
+
+Zig's build modes have a significant impact on runtime performance:
+
+<Tabs>
+<TabItem label="ReleaseFast">
+
+```sh
+zig build -Doptimize=ReleaseFast
+```
+
+Maximum performance. The compiler inlines `comptime`-known function calls, eliminates safety checks, and applies aggressive optimizations. Use this for production deployments.
+
+</TabItem>
+<TabItem label="ReleaseSafe">
+
+```sh
+zig build -Doptimize=ReleaseSafe
+```
+
+Retains safety checks (bounds checking, integer overflow detection) while still applying optimizations. Good for staging environments where you want performance but also want to catch bugs.
+
+</TabItem>
+<TabItem label="ReleaseSmall">
+
+```sh
+zig build -Doptimize=ReleaseSmall
+```
+
+Optimizes for binary size over speed. Useful for embedded or containerized deployments where image size matters.
+
+</TabItem>
+</Tabs>
+
+## Performance checklist
+
+Use this checklist when preparing a zzz application for production:
+
+| Area | Action | Impact |
+|------|--------|--------|
+| Build mode | Use `-Doptimize=ReleaseFast` | Enables inlining of comptime middleware chains |
+| Backend | Evaluate zzz vs libhv for your workload | Platform-native I/O can improve throughput |
+| Compression | Add `gzipCompress` middleware | 60-80% bandwidth reduction for text responses |
+| Worker threads | Match `worker_threads` to CPU cores | Prevents over- or under-subscription |
+| Timeouts | Tighten `read_timeout_ms` and `keepalive_timeout_ms` | Frees connections from slow or idle clients |
+| Body limits | Set `max_body_size` to the minimum your app needs | Rejects oversized payloads early |
+| Backlog | Increase `kernel_backlog` for bursty traffic | Reduces connection refusals during spikes |
+| Health checks | Place `health` middleware first in the pipeline | Prevents health probes from inflating metrics |
+| Metrics | Expose `/metrics` for Prometheus monitoring | Enables data-driven tuning |
+
+## Next steps
+
+- [Server backends](/advanced/server-backends/) -- detailed backend architecture and selection guide
+- [Observability](/advanced/observability/) -- structured logging, metrics, and health checks
+- [Middleware](/core/middleware/) -- learn how the middleware pipeline works
+- [Deployment](/deployment/overview/) -- production deployment strategies

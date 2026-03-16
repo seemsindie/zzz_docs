@@ -1,0 +1,190 @@
+---
+title: "Cron Scheduling"
+description: "Schedule recurring background jobs in zzz_jobs using standard 5-field cron expressions with timezone support."
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+zzz_jobs includes a built-in cron scheduler that evaluates standard 5-field cron expressions once per minute and enqueues matching jobs automatically. This is useful for periodic tasks like nightly cleanups, report generation, or data synchronization.
+
+## How it works
+
+The cron scheduler runs as a dedicated thread inside the supervisor. Every ~30 seconds it checks the current minute against all registered cron entries. When an expression matches, the scheduler enqueues a new job for the associated worker. Each entry tracks `last_run` to avoid double-enqueuing within the same minute.
+
+## Registering cron jobs
+
+Register cron jobs on the supervisor after registering workers and before (or after) calling `start()`:
+
+```zig
+const zzz_jobs = @import("zzz_jobs");
+
+var supervisor = try zzz_jobs.MemorySupervisor.init(.{}, .{
+    .queues = &.{.{ .name = "default", .concurrency = 5 }},
+});
+defer supervisor.deinit();
+
+// Register the worker that will handle cron-triggered jobs
+supervisor.registerWorker(.{
+    .name = "cleanup_worker",
+    .handler = &cleanupHandler,
+});
+
+// Schedule it to run at 2:00 AM every day
+try supervisor.registerCron(
+    "nightly_cleanup",     // unique name for this cron entry
+    "0 2 * * *",           // cron expression
+    "cleanup_worker",      // worker name to enqueue
+    "{}",                  // job args
+    .{},                   // JobOpts (queue, priority, etc.)
+);
+
+try supervisor.start();
+```
+
+### registerCron parameters
+
+| Parameter | Type | Description |
+|---|---|---|
+| `name` | `[]const u8` | A unique identifier for this cron entry (max 128 chars) |
+| `cron_expr` | `[]const u8` | Standard 5-field cron expression |
+| `worker` | `[]const u8` | Name of the registered worker to dispatch to |
+| `args` | `[]const u8` | Serialized arguments passed to the worker (max 512 chars) |
+| `opts` | `JobOpts` | Job options: queue, priority, max_attempts, unique_key, etc. |
+
+The scheduler supports up to 32 cron entries.
+
+## Cron expression syntax
+
+zzz_jobs uses standard 5-field cron expressions. Each field is separated by whitespace:
+
+```
+ ┌────────── minute (0-59)
+ │ ┌──────── hour (0-23)
+ │ │ ┌────── day of month (1-31)
+ │ │ │ ┌──── month (1-12)
+ │ │ │ │ ┌── day of week (0-6, Sun=0)
+ │ │ │ │ │
+ * * * * *
+```
+
+### Supported syntax
+
+| Syntax | Meaning | Example |
+|---|---|---|
+| `*` | Every value in the range | `* * * * *` -- every minute |
+| `N` | Specific value | `30 * * * *` -- at minute 30 |
+| `N-M` | Range (inclusive) | `0 9-17 * * *` -- hours 9 through 17 |
+| `*/N` | Step (every Nth value) | `*/15 * * * *` -- every 15 minutes |
+| `N-M/S` | Range with step | `0-30/10 * * * *` -- minutes 0, 10, 20, 30 |
+| `A,B,C` | List of values | `0,15,30,45 * * * *` -- at 0, 15, 30, 45 |
+
+### Common expressions
+
+| Expression | Schedule |
+|---|---|
+| `* * * * *` | Every minute |
+| `*/5 * * * *` | Every 5 minutes |
+| `*/15 * * * *` | Every 15 minutes |
+| `0 * * * *` | Every hour (at minute 0) |
+| `0 0 * * *` | Midnight daily |
+| `0 2 * * *` | 2:00 AM daily |
+| `0 9 * * 1-5` | 9:00 AM on weekdays (Mon-Fri) |
+| `0 0 1 * *` | Midnight on the 1st of each month |
+| `30 4 * * 0` | 4:30 AM every Sunday |
+| `0 0 1 1 *` | Midnight on January 1st |
+
+## Parsing cron expressions directly
+
+You can use `CronExpr` independently of the supervisor for custom scheduling logic:
+
+```zig
+const zzz_jobs = @import("zzz_jobs");
+
+const expr = try zzz_jobs.CronExpr.parse("0 9 * * 1-5");
+
+// Check if a specific Unix timestamp matches
+const matches = expr.matches(timestamp);
+
+// Find the next matching timestamp after a given time
+const next = try expr.nextAfter(timestamp);
+```
+
+### CronExpr methods
+
+| Method | Signature | Description |
+|---|---|---|
+| `parse` | `fn ([]const u8) !CronExpr` | Parse a 5-field cron string into a bitmask representation |
+| `matches` | `fn (CronExpr, i64) bool` | Test if a Unix timestamp matches the expression (UTC) |
+| `nextAfter` | `fn (CronExpr, i64) !i64` | Find the next matching timestamp after the given time (UTC) |
+| `matchesWithOffset` | `fn (CronExpr, i64, i32) bool` | Test with a fixed timezone offset (seconds from UTC) |
+| `nextAfterWithOffset` | `fn (CronExpr, i64, i32) !i64` | Find next match with a timezone offset |
+
+## Timezone support
+
+By default, cron expressions are evaluated against UTC. For local-time scheduling, the cron scheduler and `CronExpr` support a fixed timezone offset specified in seconds from UTC:
+
+<Tabs>
+<TabItem label="Via CronScheduler">
+
+```zig
+// The CronScheduler accepts a timezone offset at initialization:
+// tz_offset is in seconds: EST = -18000, JST = 32400
+var scheduler = zzz_jobs.CronScheduler(zzz_jobs.MemoryStore)
+    .initWithTimezone(&store, &running, -5 * 3600); // EST
+```
+
+</TabItem>
+<TabItem label="Via CronExpr">
+
+```zig
+const expr = try zzz_jobs.CronExpr.parse("0 9 * * *");
+
+// Check if a UTC timestamp matches "9:00 AM EST"
+const est_offset: i32 = -5 * 3600;
+const matches = expr.matchesWithOffset(utc_timestamp, est_offset);
+
+// Find next "9:00 AM EST" occurrence (returns UTC timestamp)
+const next = try expr.nextAfterWithOffset(utc_timestamp, est_offset);
+```
+
+</TabItem>
+</Tabs>
+
+The timezone offset is a fixed value and does not account for daylight saving time transitions. For DST-aware scheduling, adjust the offset seasonally in your application code.
+
+## Combining cron with unique jobs
+
+To prevent overlapping runs of a slow cron job, combine cron scheduling with unique job keys:
+
+```zig
+try supervisor.registerCron(
+    "hourly_sync",
+    "0 * * * *",
+    "sync_worker",
+    "{}",
+    .{
+        .unique_key = "hourly-sync",
+        .unique_strategy = .ignore_new,
+    },
+);
+```
+
+If the previous sync is still running (or pending) when the next cron tick fires, the new job is silently skipped because a job with the same `unique_key` already exists in a non-terminal state.
+
+## Error handling
+
+If a cron expression is invalid, `CronExpr.parse` returns `error.InvalidCronExpression`. This propagates through `registerCron`, so you can handle it at registration time:
+
+```zig
+supervisor.registerCron("bad", "invalid expr", "worker", "{}", .{}) catch |err| {
+    std.log.err("Invalid cron expression: {}", .{err});
+};
+```
+
+If the scheduler has reached its limit of 32 entries, `registerCron` returns `error.TooManyCronEntries`.
+
+## Next steps
+
+- [Workers and supervisors](/jobs/workers/) -- the execution model for cron-triggered jobs
+- [Unique jobs](/jobs/unique-jobs/) -- preventing duplicate cron runs
+- [Retry strategies](/jobs/retry-strategies/) -- handling failures in cron-triggered jobs

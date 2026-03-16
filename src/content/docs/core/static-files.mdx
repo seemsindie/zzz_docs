@@ -1,0 +1,147 @@
+---
+title: "Static Files"
+description: "Serve CSS, JavaScript, images, and other assets from a directory with caching and MIME detection."
+---
+
+The static files middleware serves files from a directory on disk, with automatic MIME type detection, cache headers, and ETag support. Requests that do not match the configured prefix pass through to the router.
+
+## Basic setup
+
+Add `staticFiles` to your middleware pipeline:
+
+```zig
+const App = zzz.Router.define(.{
+    .middleware = &.{
+        zzz.errorHandler(.{}),
+        zzz.logger,
+        zzz.staticFiles(.{ .dir = "public", .prefix = "/static" }),
+    },
+    .routes = &.{ ... },
+});
+```
+
+With this configuration, a request to `/static/css/app.css` serves the file at `public/css/app.css` relative to your working directory.
+
+## Configuration
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `dir` | `[]const u8` | `"public"` | Directory to serve files from, relative to the working directory. |
+| `prefix` | `[]const u8` | `"/static"` | URL prefix to match. Only requests starting with this prefix are handled. |
+| `max_age` | `[]const u8` | `"3600"` | Cache-Control `max-age` value in seconds. |
+
+```zig
+zzz.staticFiles(.{
+    .dir = "assets",
+    .prefix = "/assets",
+    .max_age = "86400", // 1 day
+}),
+```
+
+## How it works
+
+When a request arrives:
+
+1. The middleware checks if the request path starts with the configured `prefix`.
+2. If not, it calls `ctx.next()` to pass through to the router.
+3. The prefix is stripped and the remainder is used as the file path within `dir`.
+4. Path traversal attempts (`..`) are rejected with `403 Forbidden`.
+5. The file is read from disk (capped at 10 MB).
+6. The MIME type is detected from the file extension.
+7. `Cache-Control` and `ETag` headers are set.
+8. If the client sends `If-None-Match` matching the ETag, a `304 Not Modified` response is returned with no body.
+
+If the file is not found, the middleware calls `ctx.next()` so the router can handle the request.
+
+## MIME type detection
+
+MIME types are detected from file extensions. The following types are built in:
+
+| Extension | Content-Type |
+|-----------|-------------|
+| `.html`, `.htm` | `text/html; charset=utf-8` |
+| `.css` | `text/css; charset=utf-8` |
+| `.js`, `.mjs` | `application/javascript; charset=utf-8` |
+| `.json` | `application/json; charset=utf-8` |
+| `.xml` | `application/xml; charset=utf-8` |
+| `.txt` | `text/plain; charset=utf-8` |
+| `.csv` | `text/csv; charset=utf-8` |
+| `.md` | `text/markdown; charset=utf-8` |
+| `.png` | `image/png` |
+| `.jpg`, `.jpeg` | `image/jpeg` |
+| `.gif` | `image/gif` |
+| `.svg` | `image/svg+xml` |
+| `.ico` | `image/x-icon` |
+| `.webp` | `image/webp` |
+| `.avif` | `image/avif` |
+| `.woff` | `font/woff` |
+| `.woff2` | `font/woff2` |
+| `.ttf` | `font/ttf` |
+| `.otf` | `font/otf` |
+| `.pdf` | `application/pdf` |
+| `.zip` | `application/zip` |
+| `.gz` | `application/gzip` |
+| `.wasm` | `application/wasm` |
+| `.mp3` | `audio/mpeg` |
+| `.mp4` | `video/mp4` |
+| `.webm` | `video/webm` |
+| `.ogg` | `audio/ogg` |
+
+Unrecognized extensions fall back to `application/octet-stream`.
+
+## Caching and ETags
+
+The middleware sets two caching headers on every successful response:
+
+- **`Cache-Control: public, max-age=<value>`** -- controlled by the `max_age` config option.
+- **`ETag: "<file_size>"`** -- a simple ETag based on the file size.
+
+When a browser sends `If-None-Match` with a matching ETag, the middleware returns `304 Not Modified` without reading the file body, saving bandwidth.
+
+## Security
+
+The middleware rejects any file path containing `..` segments to prevent directory traversal attacks. These requests receive a `403 Forbidden` response.
+
+Files larger than 10 MB are not served. Empty files are also skipped.
+
+## Sending individual files
+
+Outside of the static middleware, you can send a single file from any handler using `ctx.sendFile()`:
+
+```zig
+fn downloadReport(ctx: *zzz.Context) !void {
+    ctx.sendFile("reports/monthly.pdf", null); // auto-detect MIME
+}
+
+fn downloadCsv(ctx: *zzz.Context) !void {
+    ctx.sendFile("data/export.csv", "text/csv; charset=utf-8"); // explicit MIME
+}
+```
+
+`sendFile` uses the same path traversal protection and MIME detection as the static middleware.
+
+## Project structure
+
+A typical project serves static assets from a `public/` directory:
+
+```
+my_app/
+  public/
+    css/
+      app.css
+    js/
+      app.js
+    images/
+      logo.png
+    favicon.ico
+  src/
+    main.zig
+```
+
+With `.dir = "public"` and `.prefix = "/static"`, these are available at `/static/css/app.css`, `/static/js/app.js`, and so on.
+
+## Next steps
+
+- [Middleware](/core/middleware/) -- see where static files fits in the pipeline
+- [Context](/core/context/) -- the `sendFile` method and other response helpers
+- [Error Handling](/core/error-handling/) -- how errors propagate through middleware

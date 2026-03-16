@@ -1,40 +1,91 @@
 ---
-title: Welcome to Starlight
-description: Get started building your docs site with Starlight.
-template: splash # Remove or comment out this line to display the site sidebar on this page.
+title: zzz — A Zig Web Framework
+description: A Phoenix-inspired, batteries-included web framework for Zig. Blazing fast, memory-safe, with compile-time route resolution.
+template: splash
 hero:
-  tagline: Congrats on setting up a new Starlight project!
+  tagline: A Phoenix-inspired, batteries-included web framework for Zig. Blazing fast, memory-safe, with compile-time route resolution.
   image:
-    file: ../../assets/houston.webp
+    file: ../../assets/logo-dark.svg
   actions:
-    - text: Example Guide
-      link: /guides/example/
+    - text: Get Started
+      link: /getting-started/installation/
       icon: right-arrow
-    - text: Read the Starlight docs
-      link: https://starlight.astro.build
+      variant: primary
+    - text: View on GitHub
+      link: https://github.com/seemsindie/zzz.zig
       icon: external
       variant: minimal
 ---
 
 import { Card, CardGrid } from '@astrojs/starlight/components';
 
-## Next steps
+## Why zzz?
 
 <CardGrid stagger>
-	<Card title="Update content" icon="pencil">
-		Edit `src/content/docs/index.mdx` to see this page change.
-	</Card>
-	<Card title="Change page layout" icon="document">
-		Delete `template: splash` in `src/content/docs/index.mdx` to display a
-		sidebar on this page.
-	</Card>
-	<Card title="Add new content" icon="add-document">
-		Add Markdown or MDX files to `src/content/docs` to create new pages.
-	</Card>
-	<Card title="Configure your site" icon="setting">
-		Edit your `sidebar` and other config in `astro.config.mjs`.
-	</Card>
-	<Card title="Read the docs" icon="open-book">
-		Learn more in [the Starlight Docs](https://starlight.astro.build/).
-	</Card>
+  <Card title="Compile-time Router" icon="rocket">
+    Routes are resolved at compile time — zero runtime overhead, instant 404s, and type-safe path parameters.
+  </Card>
+  <Card title="20 Built-in Middleware" icon="puzzle">
+    Logging, CORS, compression, auth, rate limiting, CSRF, sessions, body parsing, static files, and more — all included.
+  </Card>
+  <Card title="Phoenix-style Channels" icon="star">
+    Real-time WebSocket channels with topic-based pub/sub, presence tracking, and a zzz.js client library.
+  </Card>
+  <Card title="Database Layer" icon="document">
+    Compile-time schema definitions, type-safe repositories, composable query builder, migrations, and connection pooling.
+  </Card>
+  <Card title="Background Jobs" icon="setting">
+    Priority queues with in-memory or database-backed stores, retry strategies, cron scheduling, and telemetry.
+  </Card>
+  <Card title="Template Engine" icon="pencil">
+    Layouts, partials, XSS-safe HTML escaping, pipes, and first-class htmx integration.
+  </Card>
+  <Card title="OpenAPI / Swagger" icon="open-book">
+    Generate OpenAPI specs from route annotations. Swagger UI included.
+  </Card>
+  <Card title="High-performance I/O" icon="laptop">
+    epoll, kqueue, and io_uring backends. Built for speed from the ground up.
+  </Card>
 </CardGrid>
+
+## Packages
+
+| Package | Description |
+|---------|-------------|
+| **zzz.zig** | Core framework — HTTP server, router, middleware, WebSockets, channels |
+| **zzz_db** | Database layer — SQLite & PostgreSQL, schemas, repos, query builder, migrations |
+| **zzz_jobs** | Background jobs — queues, workers, retry strategies, cron, telemetry |
+| **zzz_mailer** | Email — SMTP adapters and templated emails |
+| **zzz_template** | Template engine — layouts, partials, pipes, htmx helpers |
+| **zzz_cli** | CLI tool — project scaffolding, generators, dev server, migrations |
+| **zzz_example_app** | Reference application demonstrating full-stack zzz usage |
+
+## Quick taste
+
+```zig
+const std = @import("std");
+const zzz = @import("zzz");
+
+fn index(ctx: *zzz.Context) !void {
+    ctx.text(.ok, "Hello from zzz!");
+}
+
+const App = zzz.Router.define(.{
+    .middleware = &.{zzz.logger},
+    .routes = &.{
+        zzz.Router.get("/", index),
+    },
+});
+
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+
+    var server = zzz.Server.init(gpa.allocator(), .{
+        .port = 4000,
+    }, &App.handler);
+
+    std.log.info("Listening on http://127.0.0.1:4000", .{});
+    try server.listen(std.io.defaultIo());
+}
+```

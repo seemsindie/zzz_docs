@@ -1,0 +1,250 @@
+---
+title: "Database Testing"
+description: "Test database code with sandboxes, factories, and seed data."
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+zzz_db provides three testing utilities: `TestSandbox` for transaction-based test isolation, `Factory` for generating test records with overridable defaults, and `seed` for bulk-inserting known data. Together they make database tests fast, repeatable, and independent.
+
+## TestSandbox
+
+`TestSandbox` wraps a database connection in a transaction that is automatically rolled back when the sandbox is deinitialized. Every insert, update, or delete inside the sandbox disappears at the end of the test, so tests never interfere with each other.
+
+### Basic usage
+
+```zig
+const zzz_db = @import("zzz_db");
+const sqlite = zzz_db.sqlite;
+const TestSandbox = zzz_db.TestSandbox(sqlite);
+
+test "user creation" {
+    var conn = try zzz_db.Connection(sqlite).open(.{});
+    defer conn.close();
+
+    // Set up schema (or run migrations) before the sandbox
+    try conn.exec("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, email TEXT)");
+
+    var sandbox = try TestSandbox.begin(&conn);
+    defer sandbox.rollback(); // All changes rolled back here
+
+    try conn.exec("INSERT INTO users (name, email) VALUES ('Alice', 'alice@example.com')");
+
+    // Assertions within the sandbox see the inserted data
+    var stmt = try sqlite.Statement.prepare(&conn.db, "SELECT COUNT(*) FROM users WHERE name = 'Alice'");
+    defer stmt.finalize();
+    _ = try stmt.step();
+    try std.testing.expectEqual(@as(i64, 1), stmt.columnInt64(0));
+}
+// After the test, the INSERT is rolled back -- the users table is empty again.
+```
+
+### How it works
+
+`TestSandbox` calls `Transaction.begin` on the connection when created and `Transaction.rollback` when you call `rollback()`. Since zzz_db transactions support savepoints, you can even use transactions inside the sandbox -- they become nested savepoints.
+
+| Method | Description |
+|---|---|
+| `TestSandbox.begin(conn)` | Starts a transaction on the connection and returns a sandbox handle. |
+| `sandbox.rollback()` | Rolls back the transaction, discarding all changes. Safe to call even if the transaction is already rolled back. |
+| `sandbox.commit()` | Commits the transaction, persisting all changes. Use this only when you intentionally want data to survive the test. |
+
+### Pattern: sandbox with a pool
+
+If your code requires a connection pool, you can check out a connection first and wrap it in a sandbox:
+
+```zig
+test "repository operations" {
+    var pool = try zzz_db.Pool(sqlite).init(.{ .size = 1 });
+    defer pool.deinit();
+
+    var pc = try pool.checkout();
+    defer pc.release();
+
+    // Create tables
+    try pc.conn.exec("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, email TEXT, inserted_at BIGINT DEFAULT 0, updated_at BIGINT DEFAULT 0)");
+
+    var sandbox = try TestSandbox.begin(pc.conn);
+    defer sandbox.rollback();
+
+    // Use the connection for operations
+    try pc.conn.exec("INSERT INTO users (name, email) VALUES ('Test', 'test@example.com')");
+}
+```
+
+## Factory
+
+`Factory` provides a convenient way to create test records with sensible defaults. You specify only the fields you care about -- everything else gets a zero/empty default value.
+
+### Setup
+
+```zig
+const zzz_db = @import("zzz_db");
+const sqlite = zzz_db.sqlite;
+const Factory = zzz_db.Factory;
+
+const User = struct {
+    id: i64,
+    name: []const u8,
+    email: []const u8,
+    inserted_at: i64 = 0,
+    updated_at: i64 = 0,
+
+    pub const Meta = zzz_db.Schema.define(@This(), .{
+        .table = "users",
+        .primary_key = "id",
+        .timestamps = true,
+    });
+};
+```
+
+### Creating a single record
+
+```zig
+var factory = Factory(sqlite, User).init(&pool);
+var user = try factory.create(.{ .name = "Alice", .email = "alice@example.com" }, allocator);
+defer zzz_db.freeOne(User, &user, allocator);
+
+// user.id is set by the database (auto-increment)
+// user.name == "Alice"
+// user.email == "alice@example.com"
+```
+
+The `create` method:
+1. Builds a default record with zero values for all fields
+2. Applies your overrides on top
+3. Inserts the record via `repo.insert`
+4. Returns the inserted record with the database-generated `id`
+
+### Creating multiple records
+
+```zig
+const users = try factory.createMany(5, .{ .name = "User", .email = "user@example.com" }, allocator);
+defer {
+    for (users) |*u| {
+        zzz_db.freeOne(User, u, allocator);
+    }
+    allocator.free(users);
+}
+
+// users.len == 5, each with name "User" and unique auto-increment ids
+```
+
+### Default value resolution
+
+`Factory` generates default values based on field types:
+
+| Field type | Default value |
+|---|---|
+| `[]const u8` | `""` (empty string) |
+| `i64`, `i32` | `0` |
+| `f64`, `f32` | `0.0` |
+| `bool` | `false` |
+| Optional (`?T`) | `null` |
+| Fields with `default_value` | The struct's default value |
+
+## Seed data
+
+The `seed` function bulk-inserts a slice of records. Use it to populate lookup tables or set up baseline data for integration tests.
+
+```zig
+const zzz_db = @import("zzz_db");
+const sqlite = zzz_db.sqlite;
+
+var repo = zzz_db.Repo(sqlite).init(&pool);
+
+try zzz_db.seed(sqlite, User, &repo, &.{
+    .{ .id = 0, .name = "Alice", .email = "alice@example.com" },
+    .{ .id = 0, .name = "Bob", .email = "bob@example.com" },
+    .{ .id = 0, .name = "Charlie", .email = "charlie@example.com" },
+}, allocator);
+```
+
+Each record is inserted individually via `repo.insert`. The `id` field is set to `0` because the database assigns auto-increment values. Inserted records are freed internally -- `seed` does not return them.
+
+## Putting it all together
+
+Here is a complete test that combines all three utilities:
+
+```zig
+const std = @import("std");
+const zzz_db = @import("zzz_db");
+const sqlite = zzz_db.sqlite;
+
+const User = struct {
+    id: i64,
+    name: []const u8,
+    email: []const u8,
+    inserted_at: i64 = 0,
+    updated_at: i64 = 0,
+
+    pub const Meta = zzz_db.Schema.define(@This(), .{
+        .table = "users",
+        .primary_key = "id",
+        .timestamps = true,
+    });
+};
+
+test "full database test example" {
+    // 1. Set up pool and schema
+    var pool = try zzz_db.Pool(sqlite).init(.{ .size = 1 });
+    defer pool.deinit();
+
+    var pc = try pool.checkout();
+    try pc.conn.exec(User.Meta.create_table);
+    pc.release();
+
+    // 2. Wrap in sandbox for isolation
+    var pc2 = try pool.checkout();
+    defer pc2.release();
+    var sandbox = try zzz_db.TestSandbox(sqlite).begin(pc2.conn);
+    defer sandbox.rollback();
+
+    // 3. Seed baseline data
+    var repo = zzz_db.Repo(sqlite).init(&pool);
+    try zzz_db.seed(sqlite, User, &repo, &.{
+        .{ .id = 0, .name = "Admin", .email = "admin@example.com" },
+    }, std.testing.allocator);
+
+    // 4. Use factory for test-specific data
+    var factory = zzz_db.Factory(sqlite, User).init(&pool);
+    var user = try factory.create(.{
+        .name = "TestUser",
+        .email = "test@example.com",
+    }, std.testing.allocator);
+    defer zzz_db.freeOne(User, &user, std.testing.allocator);
+
+    // 5. Assert
+    const q = zzz_db.Query(User).init();
+    const count = try repo.count(User, q, std.testing.allocator);
+    try std.testing.expectEqual(@as(i64, 2), count);
+}
+```
+
+## Setting up a test database
+
+<Steps>
+1. Use an in-memory SQLite database for fast, isolated tests. The default `Connection(sqlite).open(.{})` creates an in-memory database -- no file cleanup needed.
+
+2. Create tables using either your schema's `create_table` SQL or by running migrations:
+
+   ```zig
+   // Option A: Use schema-generated DDL
+   try conn.exec(User.Meta.create_table);
+
+   // Option B: Run migrations
+   const runner = zzz_db.Runner(sqlite).init(&pool);
+   _ = try runner.migrate(&migrations, std.testing.allocator);
+   ```
+
+3. Wrap each test in a `TestSandbox` to guarantee isolation between tests.
+
+4. Use `std.testing.allocator` to catch memory leaks -- it reports any unfreed allocations as test failures.
+</Steps>
+
+## Next steps
+
+- [Transactions](/database/transactions/) -- understand how `TestSandbox` uses transactions under the hood
+- [Migrations](/database/migrations/) -- set up test schemas by running migrations
+- [Repository](/database/repository/) -- the `repo.insert` and `repo.count` APIs used by `Factory` and `seed`
+- [Schema](/database/schema/) -- define schemas with compile-time `create_table` SQL

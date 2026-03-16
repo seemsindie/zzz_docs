@@ -1,0 +1,344 @@
+---
+title: "Swagger and OpenAPI"
+description: "Generate OpenAPI 3.1.0 specs from route annotations, configure security schemes, and serve interactive Swagger UI."
+---
+
+import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
+
+zzz generates a complete OpenAPI 3.1.0 specification at compile time from your annotated route definitions. This page covers route annotation, spec configuration, security schemes, and serving the Swagger UI.
+
+## Annotating routes
+
+Call `.doc()` on any route definition to include it in the generated spec. Routes without `.doc()` are excluded entirely.
+
+```zig
+zzz.Router.get("/api/users", listUsers)
+    .doc(.{
+        .summary = "List all users",
+        .description = "Returns a paginated list of users.",
+        .tag = "Users",
+        .response_body = UserListResponse,
+    }),
+```
+
+### ApiDoc fields
+
+The `.doc()` method accepts an `ApiDoc` struct with the following fields:
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `summary` | `[]const u8` | `""` | Short summary shown in the Swagger UI operation list. If empty, defaults to `"METHOD /path"`. |
+| `description` | `[]const u8` | `""` | Longer description rendered below the summary. |
+| `tag` | `[]const u8` | `""` | Groups the operation under a tag in the Swagger UI sidebar. |
+| `request_body` | `?type` | `null` | Zig type for the JSON request body. Generates a `$ref` to `components/schemas`. |
+| `response_body` | `?type` | `null` | Zig type for the JSON response body. Generates a `$ref` to `components/schemas`. |
+| `query_params` | `[]const QueryParamDoc` | `&.{}` | Documented query parameters for the operation. |
+| `security` | `[]const []const u8` | `&.{}` | Names of security schemes required for this operation. |
+
+### Documenting query parameters
+
+Use the `query_params` field to document expected query string parameters:
+
+```zig
+zzz.Router.get("/api/users", listUsers)
+    .doc(.{
+        .summary = "List users",
+        .tag = "Users",
+        .query_params = &.{
+            .{ .name = "page", .description = "Page number", .schema_type = "integer" },
+            .{ .name = "limit", .description = "Results per page", .schema_type = "integer" },
+            .{ .name = "search", .description = "Filter by name", .required = false },
+        },
+    }),
+```
+
+Each `QueryParamDoc` has these fields:
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `name` | `[]const u8` | (required) | The query parameter name. |
+| `description` | `[]const u8` | `""` | Description of the parameter. |
+| `required` | `bool` | `false` | Whether the parameter is required. |
+| `schema_type` | `[]const u8` | `"string"` | JSON Schema type (`"string"`, `"integer"`, `"boolean"`, etc.). |
+
+### Path parameters
+
+Path parameters are detected automatically from the route pattern. A route pattern like `/api/users/:id` produces an OpenAPI path of `/api/users/{id}` with a required path parameter named `id`. You do not need to document path parameters manually.
+
+### Named routes and operationId
+
+If you chain `.named()` on a route, the name becomes the `operationId` in the OpenAPI spec:
+
+```zig
+zzz.Router.get("/api/users/:id", getUser)
+    .named("get_user")
+    .doc(.{ .summary = "Get user by ID", .tag = "Users" }),
+```
+
+This produces `"operationId": "get_user"` in the spec, which client code generators use as function names.
+
+## Spec generation
+
+Call `zzz.swagger.generateSpec` with a `SpecConfig` and your route table to produce the OpenAPI JSON string at compile time.
+
+```zig
+const api_spec = zzz.swagger.generateSpec(.{
+    .title = "Example App API",
+    .version = "0.1.0",
+    .description = "Demo API built with zzz",
+    .server_url = "https://api.example.com",
+}, routes);
+```
+
+### SpecConfig fields
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `title` | `[]const u8` | `"API Documentation"` | The title shown in the spec info block and Swagger UI header. |
+| `description` | `[]const u8` | `""` | A longer description of the API. |
+| `version` | `[]const u8` | `"1.0.0"` | The API version string. |
+| `server_url` | `[]const u8` | `"/"` | Base URL for the server entry in the spec. |
+| `security_schemes` | `[]const SecurityScheme` | `&.{}` | Security scheme definitions for `components/securitySchemes`. |
+
+### What gets generated
+
+The `generateSpec` function produces a valid OpenAPI 3.1.0 JSON document containing:
+
+- **info** -- title, description, and version from `SpecConfig`
+- **servers** -- a single server entry from `server_url`
+- **paths** -- one entry per unique path, with operations grouped by HTTP method
+- **components/schemas** -- JSON Schema definitions for all `request_body` and `response_body` types
+- **components/securitySchemes** -- security scheme definitions from `SpecConfig`
+
+Duplicate schema types are deduplicated automatically. If two routes reference the same Zig type, only one schema definition is emitted.
+
+## Security schemes
+
+To document authentication requirements, define security schemes in your `SpecConfig` and reference them from individual routes.
+
+<Steps>
+
+1. **Define schemes** in the spec configuration:
+
+   ```zig
+   const api_spec = zzz.swagger.generateSpec(.{
+       .title = "Secure API",
+       .security_schemes = &.{
+           .{
+               .name = "bearerAuth",
+               .type = .http,
+               .scheme = "bearer",
+               .bearer_format = "JWT",
+               .description = "JWT Bearer token",
+           },
+           .{
+               .name = "apiKeyAuth",
+               .type = .apiKey,
+               .in = .header,
+               .param_name = "X-API-Key",
+               .description = "API key passed in X-API-Key header",
+           },
+       },
+   }, routes);
+   ```
+
+2. **Reference schemes** on protected routes:
+
+   ```zig
+   zzz.Router.get("/api/me", currentUser)
+       .doc(.{
+           .summary = "Current user",
+           .security = &.{"bearerAuth"},
+       }),
+   ```
+
+</Steps>
+
+### SecurityScheme fields
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `name` | `[]const u8` | (required) | Identifier used in route `security` references. |
+| `type` | `SecurityType` | `.http` | One of `.http`, `.apiKey`, or `.openIdConnect`. |
+| `scheme` | `?[]const u8` | `null` | HTTP auth scheme (e.g., `"bearer"`, `"basic"`). Used when type is `.http`. |
+| `bearer_format` | `?[]const u8` | `null` | Format hint (e.g., `"JWT"`). Used when type is `.http` with scheme `"bearer"`. |
+| `in` | `?ApiKeyIn` | `null` | Location of the API key: `.header`, `.query`, or `.cookie`. Used when type is `.apiKey`. |
+| `param_name` | `?[]const u8` | `null` | Name of the header, query param, or cookie. Used when type is `.apiKey`. |
+| `description` | `[]const u8` | `""` | Human-readable description of the security scheme. |
+
+<Tabs>
+<TabItem label="Bearer Token">
+
+```zig
+.{
+    .name = "bearerAuth",
+    .type = .http,
+    .scheme = "bearer",
+    .bearer_format = "JWT",
+}
+```
+
+</TabItem>
+<TabItem label="API Key">
+
+```zig
+.{
+    .name = "apiKeyAuth",
+    .type = .apiKey,
+    .in = .header,
+    .param_name = "X-API-Key",
+}
+```
+
+</TabItem>
+<TabItem label="Basic Auth">
+
+```zig
+.{
+    .name = "basicAuth",
+    .type = .http,
+    .scheme = "basic",
+}
+```
+
+</TabItem>
+</Tabs>
+
+## Serving the Swagger UI
+
+The `zzz.swagger.ui` middleware serves an interactive Swagger UI page and the raw OpenAPI JSON spec.
+
+```zig
+const App = zzz.Router.define(.{
+    .middleware = &.{
+        zzz.errorHandler(.{ .show_details = true }),
+        zzz.logger,
+        zzz.swagger.ui(.{ .spec_json = api_spec }),
+    },
+    .routes = routes,
+});
+```
+
+### Swagger UI middleware config
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `spec_json` | `[]const u8` | (required) | The comptime-generated OpenAPI JSON string from `generateSpec`. |
+| `path` | `[]const u8` | `"/api/docs"` | URL path where the Swagger UI is served. |
+| `cdn_version` | `[]const u8` | `"5.18.2"` | Version of Swagger UI loaded from the unpkg CDN. |
+
+The middleware handles two GET requests:
+
+- **`GET /api/docs`** -- serves the Swagger UI HTML page
+- **`GET /api/docs/openapi.json`** -- serves the raw OpenAPI JSON spec with `application/json` content type and a 1-hour cache header
+
+All other requests pass through to the next middleware in the chain.
+
+### Custom path
+
+To serve the docs at a different URL:
+
+```zig
+zzz.swagger.ui(.{
+    .spec_json = api_spec,
+    .path = "/docs",
+})
+```
+
+This serves the UI at `/docs` and the spec at `/docs/openapi.json`.
+
+## Putting it all together
+
+Here is a full example showing route annotations, spec generation, security, and the Swagger UI middleware:
+
+```zig
+const std = @import("std");
+const zzz = @import("zzz");
+
+// ── Types ──────────────────────────────────────────────────────────────
+
+const User = struct {
+    id: i64,
+    name: []const u8,
+    email: ?[]const u8,
+};
+
+const CreateUserRequest = struct {
+    name: []const u8,
+    email: []const u8,
+};
+
+// ── Handlers ───────────────────────────────────────────────────────────
+
+fn listUsers(ctx: *zzz.Context) !void {
+    ctx.json(.ok, .{ .users = &[_]User{} });
+}
+
+fn createUser(ctx: *zzz.Context) !void {
+    ctx.json(.created, .{ .id = 1, .name = "alice" });
+}
+
+fn currentUser(ctx: *zzz.Context) !void {
+    ctx.json(.ok, .{ .id = 1, .name = "me" });
+}
+
+// ── Routes ─────────────────────────────────────────────────────────────
+
+const routes = &.{
+    zzz.Router.get("/api/users", listUsers)
+        .doc(.{
+            .summary = "List all users",
+            .tag = "Users",
+            .response_body = []const User,
+            .query_params = &.{
+                .{ .name = "page", .schema_type = "integer" },
+            },
+        }),
+    zzz.Router.post("/api/users", createUser)
+        .doc(.{
+            .summary = "Create a user",
+            .tag = "Users",
+            .request_body = CreateUserRequest,
+            .response_body = User,
+            .security = &.{"bearerAuth"},
+        }),
+    zzz.Router.get("/api/me", currentUser)
+        .doc(.{
+            .summary = "Current user",
+            .tag = "Auth",
+            .response_body = User,
+            .security = &.{"bearerAuth"},
+        }),
+};
+
+// ── Spec ───────────────────────────────────────────────────────────────
+
+const api_spec = zzz.swagger.generateSpec(.{
+    .title = "User Service",
+    .version = "1.0.0",
+    .description = "User management API with JWT authentication",
+    .security_schemes = &.{
+        .{
+            .name = "bearerAuth",
+            .type = .http,
+            .scheme = "bearer",
+            .bearer_format = "JWT",
+        },
+    },
+}, routes);
+
+// ── App ────────────────────────────────────────────────────────────────
+
+const App = zzz.Router.define(.{
+    .middleware = &.{
+        zzz.logger,
+        zzz.swagger.ui(.{ .spec_json = api_spec }),
+    },
+    .routes = routes,
+});
+```
+
+## Next steps
+
+- [JSON Schema](/api/json-schema/) -- learn how Zig types are mapped to JSON Schema definitions in the spec
+- [API Documentation Overview](/api/overview/) -- high-level look at the documentation system

@@ -1,0 +1,291 @@
+---
+title: "JSON Schema"
+description: "How zzz derives JSON Schema definitions from Zig types at compile time for use in OpenAPI specs."
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+zzz automatically generates JSON Schema definitions from your Zig types at compile time. These schemas appear in the `components/schemas` section of the generated OpenAPI spec when you reference types via `request_body` or `response_body` in your route annotations.
+
+## How it works
+
+The `zzz.swagger.jsonSchema` function accepts a Zig type and returns a comptime `[]const u8` containing the JSON Schema representation. The schema generator inspects Zig's type info to produce the corresponding JSON Schema type.
+
+```zig
+const schema = zzz.swagger.jsonSchema(MyStruct);
+// schema is a comptime string like:
+// {"type":"object","properties":{"id":{"type":"integer"},...},"required":["id",...]}
+```
+
+You typically do not call `jsonSchema` directly. Instead, the spec generator calls it automatically when it encounters `request_body` or `response_body` types in your route annotations. The resulting schemas are placed in `components/schemas` and referenced via `$ref`.
+
+## Type mappings
+
+The following table shows how Zig types map to JSON Schema types:
+
+| Zig type | JSON Schema | Example output |
+|---|---|---|
+| `i8`, `i16`, `i32`, `i64` | `integer` | `{"type":"integer"}` |
+| `u8`, `u16`, `u32`, `u64` | `integer` | `{"type":"integer"}` |
+| `f32`, `f64` | `number` | `{"type":"number"}` |
+| `bool` | `boolean` | `{"type":"boolean"}` |
+| `[]const u8` | `string` | `{"type":"string"}` |
+| `[N]u8` | `string` | `{"type":"string"}` |
+| `?T` | `oneOf` | `{"oneOf":[<schema(T)>,{"type":"null"}]}` |
+| `[]T` / `[]const T` | `array` | `{"type":"array","items":<schema(T)>}` |
+| `[N]T` | `array` | `{"type":"array","items":<schema(T)>}` |
+| `struct` | `object` | `{"type":"object","properties":{...},"required":[...]}` |
+| `enum` | `string` with `enum` | `{"type":"string","enum":["val1","val2"]}` |
+| Single-item pointer `*T` | (deref to T) | Same as `schema(T)` |
+| Other types | `string` | `{"type":"string"}` |
+
+## Structs
+
+Struct types produce a JSON Schema `object` with a `properties` map and a `required` array. Each struct field becomes a property, and non-optional fields are listed as required.
+
+<Tabs>
+<TabItem label="Zig type">
+
+```zig
+const User = struct {
+    id: i64,
+    name: []const u8,
+    email: ?[]const u8,
+};
+```
+
+</TabItem>
+<TabItem label="JSON Schema">
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "id": { "type": "integer" },
+    "name": { "type": "string" },
+    "email": {
+      "oneOf": [
+        { "type": "string" },
+        { "type": "null" }
+      ]
+    }
+  },
+  "required": ["id", "name"]
+}
+```
+
+</TabItem>
+</Tabs>
+
+Notice that `email` is optional (`?[]const u8`), so it does not appear in the `required` array. It uses a `oneOf` schema to indicate it can be either a string or null.
+
+### Nested structs
+
+Nested struct types are expanded inline. The schema generator recursively processes all nested types.
+
+<Tabs>
+<TabItem label="Zig type">
+
+```zig
+const Address = struct {
+    street: []const u8,
+    city: []const u8,
+};
+
+const User = struct {
+    name: []const u8,
+    address: Address,
+};
+```
+
+</TabItem>
+<TabItem label="JSON Schema">
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "name": { "type": "string" },
+    "address": {
+      "type": "object",
+      "properties": {
+        "street": { "type": "string" },
+        "city": { "type": "string" }
+      },
+      "required": ["street", "city"]
+    }
+  },
+  "required": ["name", "address"]
+}
+```
+
+</TabItem>
+</Tabs>
+
+### Skipped fields
+
+The schema generator skips certain fields:
+
+- Fields with names starting with `_` (underscore-prefixed private fields)
+- Fields named `Meta` (commonly used for compile-time metadata in Zig ORMs)
+- Fields with an empty name
+
+This lets you include implementation details in your structs without exposing them in the API schema.
+
+```zig
+const Model = struct {
+    id: i64,
+    name: []const u8,
+    _internal_flag: bool,  // skipped in schema
+};
+// Schema includes only "id" and "name"
+```
+
+## Enums
+
+Enum types produce a `string` schema with an `enum` array listing all variant names.
+
+<Tabs>
+<TabItem label="Zig type">
+
+```zig
+const Status = enum { active, inactive, pending };
+```
+
+</TabItem>
+<TabItem label="JSON Schema">
+
+```json
+{
+  "type": "string",
+  "enum": ["active", "inactive", "pending"]
+}
+```
+
+</TabItem>
+</Tabs>
+
+Enum fields within structs work as expected:
+
+```zig
+const User = struct {
+    name: []const u8,
+    status: Status,
+};
+```
+
+The `status` property in the generated schema will have `{"type":"string","enum":["active","inactive","pending"]}`.
+
+## Arrays and slices
+
+Slice types (`[]T` and `[]const T`) and fixed-size arrays (`[N]T`) produce an `array` schema with an `items` sub-schema derived from the element type.
+
+```zig
+const Tags = []const []const u8;
+// {"type":"array","items":{"type":"string"}}
+
+const Scores = []const i32;
+// {"type":"array","items":{"type":"integer"}}
+```
+
+The special case of `[]const u8` and `[N]u8` are treated as `string` rather than an array of integers, matching the common Zig convention of using byte slices for text.
+
+## Optional types
+
+Optional types (`?T`) produce a `oneOf` schema with the inner type and `null`:
+
+```zig
+const MaybeInt = ?i32;
+// {"oneOf":[{"type":"integer"},{"type":"null"}]}
+```
+
+In struct contexts, optional fields are excluded from the `required` array, signaling to API consumers that the field may be absent from the JSON payload.
+
+## How schemas integrate with OpenAPI
+
+When you use `request_body` or `response_body` in a route annotation, the spec generator:
+
+1. Extracts the Zig type name using `typeBaseName` (e.g., `mymodule.CreateUserRequest` becomes `CreateUserRequest`)
+2. Generates a JSON Schema for the type using `jsonSchema`
+3. Places the schema in `components/schemas` under the extracted name
+4. References it from the operation via `$ref`
+
+```zig
+zzz.Router.post("/api/users", createUser)
+    .doc(.{
+        .summary = "Create user",
+        .request_body = CreateUserRequest,
+        .response_body = User,
+    }),
+```
+
+This produces the following in the OpenAPI spec:
+
+```json
+{
+  "paths": {
+    "/api/users": {
+      "post": {
+        "summary": "Create user",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateUserRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/User" }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "CreateUserRequest": { "..." },
+      "User": { "..." }
+    }
+  }
+}
+```
+
+If multiple routes reference the same type, the schema is emitted only once in `components/schemas`.
+
+## Calling jsonSchema directly
+
+While the spec generator handles schema generation automatically, you can also call `jsonSchema` directly for other purposes such as validation or debugging:
+
+```zig
+const zzz = @import("zzz");
+
+const MyType = struct {
+    id: i64,
+    tags: []const []const u8,
+    status: enum { open, closed },
+};
+
+// At comptime:
+const schema_json = comptime zzz.swagger.jsonSchema(MyType);
+
+// schema_json contains the full JSON Schema string
+```
+
+The `typeBaseName` helper is also available for extracting short type names:
+
+```zig
+const name = comptime zzz.swagger.schema.typeBaseName(MyType);
+// name == "MyType"
+```
+
+## Next steps
+
+- [Swagger and OpenAPI](/api/swagger-openapi/) -- configure the spec generator, security schemes, and Swagger UI middleware
+- [API Documentation Overview](/api/overview/) -- high-level introduction to the documentation system

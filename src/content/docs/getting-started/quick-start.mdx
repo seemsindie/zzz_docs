@@ -1,0 +1,161 @@
+---
+title: Quick Start
+description: Build your first zzz application in 5 minutes.
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+This guide walks you through building a small zzz application with routes, middleware, and JSON responses.
+
+## Hello World
+
+<Steps>
+1. **Create a new project**
+
+   ```bash
+   zzz new hello_zzz
+   cd hello_zzz
+   ```
+
+2. **Open `src/main.zig`** and replace its contents with:
+
+   ```zig
+   const std = @import("std");
+   const zzz = @import("zzz");
+
+   fn index(ctx: *zzz.Context) !void {
+       ctx.text(.ok, "Hello from zzz!");
+   }
+
+   const App = zzz.Router.define(.{
+       .middleware = &.{zzz.logger},
+       .routes = &.{
+           zzz.Router.get("/", index),
+       },
+   });
+
+   pub fn main() !void {
+       var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+       defer _ = gpa.deinit();
+
+       var server = zzz.Server.init(gpa.allocator(), .{
+           .port = 4000,
+       }, &App.handler);
+
+       std.log.info("Listening on http://127.0.0.1:4000", .{});
+       try server.listen(std.io.defaultIo());
+   }
+   ```
+
+3. **Run it**
+
+   ```bash
+   zig build run
+   ```
+
+   Visit `http://127.0.0.1:4000` — you should see "Hello from zzz!".
+</Steps>
+
+## Adding middleware
+
+zzz ships with 20 built-in middleware. Let's add a few common ones:
+
+```zig
+const App = zzz.Router.define(.{
+    .middleware = &.{
+        zzz.errorHandler(.{ .show_details = true }),
+        zzz.logger,
+        zzz.requestId(.{}),
+        zzz.cors(.{ .allow_origins = &.{"*"} }),
+        zzz.bodyParser(.{}),
+        zzz.staticFiles(.{ .root = "public", .prefix = "/static" }),
+    },
+    .routes = &.{
+        zzz.Router.get("/", index),
+    },
+});
+```
+
+Middleware runs in the order listed — put error handling first so it catches everything downstream.
+
+## JSON routes
+
+Add a route that returns JSON:
+
+```zig
+fn getUser(ctx: *zzz.Context) !void {
+    const user = .{
+        .id = 1,
+        .name = "Alice",
+        .email = "alice@example.com",
+    };
+    try ctx.json(.ok, user);
+}
+
+fn createUser(ctx: *zzz.Context) !void {
+    const body = try ctx.parseBody(struct {
+        name: []const u8,
+        email: []const u8,
+    });
+    // ... save to database ...
+    try ctx.json(.created, body);
+}
+```
+
+Wire them into your router:
+
+```zig
+.routes = &.{
+    zzz.Router.get("/", index),
+    zzz.Router.get("/users/:id", getUser),
+    zzz.Router.post("/users", createUser),
+},
+```
+
+## RESTful resources
+
+For standard CRUD, use `Router.resource` to generate all routes at once:
+
+```zig
+.routes = &.{
+    zzz.Router.resource("/posts", .{
+        .index = listPosts,
+        .show = showPost,
+        .create = createPost,
+        .update = updatePost,
+        .delete_handler = deletePost,
+    }),
+},
+```
+
+This generates `GET /posts`, `GET /posts/:id`, `POST /posts`, `PUT /posts/:id`, and `DELETE /posts/:id`.
+
+## Scoped routes with auth
+
+Group routes under a prefix with shared middleware:
+
+```zig
+.routes = &.{
+    zzz.Router.get("/", index),
+
+    zzz.Router.scope("/api", .{
+        .middleware = &.{ zzz.bearerAuth(.{ .validate = &myValidator }) },
+    }, &.{
+        zzz.Router.get("/me", currentUser),
+        zzz.Router.resource("/posts", .{
+            .index = listPosts,
+            .create = createPost,
+        }),
+    }),
+},
+```
+
+## Next steps
+
+You now have a working zzz application with routing, middleware, and JSON. From here:
+
+- Learn about [Routing](/core/routing/) in depth
+- Add a [Database](/database/overview/)
+- Set up [Background Jobs](/jobs/overview/)
+- Add [WebSocket Channels](/websockets/overview/)
+- Use the [Template Engine](/templates/overview/) for HTML views

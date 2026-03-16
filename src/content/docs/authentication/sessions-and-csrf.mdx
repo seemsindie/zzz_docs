@@ -1,0 +1,258 @@
+---
+title: "Sessions and CSRF Protection"
+description: "Configure cookie-based sessions and cross-site request forgery protection in zzz with the session and CSRF middleware."
+---
+
+import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
+
+zzz provides two middleware that work together to manage user sessions and prevent cross-site request forgery attacks: `session` for cookie-based session management and `csrf` for token-based CSRF protection.
+
+## Session middleware
+
+The `session` middleware creates and manages server-side sessions identified by a cookie. Session data is stored in assigns, so any value you set with `ctx.assign()` during a request is automatically persisted and restored on subsequent requests that carry the same session cookie.
+
+### Configuration
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `cookie_name` | `[]const u8` | `"zzz_session"` | Name of the session cookie |
+| `max_age` | `i64` | `86400` (1 day) | Cookie max-age in seconds |
+| `path` | `[]const u8` | `"/"` | Cookie path |
+| `http_only` | `bool` | `true` | Set the `HttpOnly` flag on the cookie |
+| `secure` | `bool` | `false` | Set the `Secure` flag (requires HTTPS) |
+
+### Basic usage
+
+Add the session middleware to your global middleware pipeline:
+
+```zig
+const zzz = @import("zzz");
+
+const App = zzz.Router.define(.{
+    .middleware = &.{
+        zzz.bodyParser,
+        zzz.session(.{}),
+    },
+    .routes = &.{
+        zzz.Router.get("/dashboard", dashboard),
+        zzz.Router.post("/login", login),
+    },
+});
+```
+
+### Reading and writing session data
+
+Session data flows through the assigns map. Any key-value pair you store in assigns is automatically saved to the session after the handler runs:
+
+```zig
+fn login(ctx: *zzz.Context) !void {
+    // Authenticate user (simplified)
+    ctx.assign("user_name", "alice");
+    ctx.assign("role", "admin");
+    ctx.json(.ok, "{\"status\":\"logged in\"}");
+}
+
+fn dashboard(ctx: *zzz.Context) !void {
+    const user = ctx.getAssign("user_name") orelse "guest";
+    const session_id = ctx.getAssign("session_id") orelse "unknown";
+
+    var buf: [256]u8 = undefined;
+    const body = std.fmt.bufPrint(&buf,
+        \\{{"user":"{s}","session":"{s}"}}
+    , .{ user, session_id }) catch return;
+    ctx.json(.ok, body);
+}
+```
+
+### How sessions work
+
+<Steps>
+
+1. On each request, the middleware looks for the session cookie (default: `zzz_session`).
+
+2. If the cookie is present and the session ID matches a stored session, the session's saved assigns are loaded into `ctx.assigns`.
+
+3. If no cookie is present or the session is not found, a new session is created with a cryptographically random 32-character hex ID.
+
+4. The session ID is stored in assigns under the key `"session_id"` and a `Set-Cookie` header is added to the response.
+
+5. After the handler completes, the middleware deep-copies all current assigns (except `session_id` itself) back into the session store so they persist for future requests.
+
+</Steps>
+
+### Session store details
+
+The session store is an in-memory, fixed-size array:
+
+- **Maximum sessions**: 256 concurrent sessions per comptime configuration
+- **Data per session**: up to 2048 bytes of assign value data and 16 key-value pairs
+- **Eviction**: when the store is full, the oldest session (index 0) is overwritten
+- **Isolation**: each unique `SessionConfig` generates its own static store at comptime, so different configurations do not share state
+- **Session IDs**: generated using OS-provided cryptographic randomness (`arc4random` on macOS, `getrandom` on Linux)
+
+### Configuring for production
+
+For production deployments, enable the `Secure` flag and adjust the cookie lifetime:
+
+```zig
+zzz.session(.{
+    .cookie_name = "myapp_session",
+    .max_age = 3600 * 8,    // 8 hours
+    .path = "/",
+    .http_only = true,
+    .secure = true,          // requires HTTPS
+})
+```
+
+## CSRF protection middleware
+
+The `csrf` middleware generates and validates per-session CSRF tokens to prevent cross-site request forgery. It must be placed **after** the session middleware in the pipeline.
+
+### Configuration
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `token_field` | `[]const u8` | `"_csrf_token"` | Form field name to check for the CSRF token |
+| `header_name` | `[]const u8` | `"X-CSRF-Token"` | HTTP header name to check for the CSRF token |
+| `session_key` | `[]const u8` | `"csrf_token"` | Key in assigns used to store/retrieve the token |
+
+### Setup
+
+The CSRF middleware must come after both the body parser and the session middleware:
+
+```zig
+const App = zzz.Router.define(.{
+    .middleware = &.{
+        zzz.bodyParser,          // parses form fields
+        zzz.session(.{}),        // manages session state
+        zzz.csrf(.{}),           // generates and validates CSRF tokens
+    },
+    .routes = routes,
+});
+```
+
+### How CSRF protection works
+
+<Steps>
+
+1. On every request, the middleware checks assigns for an existing CSRF token (loaded from the session).
+
+2. If no token exists, a new 32-character hex token is generated using cryptographic randomness and stored in assigns.
+
+3. For **safe methods** (GET, HEAD, OPTIONS), the middleware calls `ctx.next()` without validation. The token is available in assigns for use in forms and templates.
+
+4. For **unsafe methods** (POST, PUT, PATCH, DELETE), the middleware checks for the token in the form body (field `_csrf_token`) or the request header (`X-CSRF-Token`).
+
+5. If the submitted token matches the session token, the request proceeds. If the token is missing or does not match, the middleware returns `403 Forbidden`.
+
+</Steps>
+
+### Including the CSRF token in forms
+
+On GET requests, read the CSRF token from assigns and include it as a hidden form field:
+
+```zig
+fn formPage(ctx: *zzz.Context) !void {
+    const csrf_token = ctx.getAssign("csrf_token") orelse "no-token";
+
+    var buf: [1024]u8 = undefined;
+    const html = std.fmt.bufPrint(&buf,
+        \\<form method="POST" action="/submit">
+        \\  <input type="hidden" name="_csrf_token" value="{s}">
+        \\  <input type="text" name="message">
+        \\  <button type="submit">Send</button>
+        \\</form>
+    , .{csrf_token}) catch return;
+    ctx.respond(.ok, "text/html; charset=utf-8", html);
+}
+```
+
+### Sending the CSRF token via header
+
+For JavaScript-based requests (AJAX, fetch), send the token in the `X-CSRF-Token` header:
+
+```zig
+fn formPageWithJs(ctx: *zzz.Context) !void {
+    const csrf_token = ctx.getAssign("csrf_token") orelse "no-token";
+
+    var buf: [2048]u8 = undefined;
+    const html = std.fmt.bufPrint(&buf,
+        \\<script>
+        \\  fetch('/api/action', {{
+        \\    method: 'POST',
+        \\    headers: {{
+        \\      'Content-Type': 'application/json',
+        \\      'X-CSRF-Token': '{s}'
+        \\    }},
+        \\    body: JSON.stringify({{ data: 'value' }})
+        \\  }});
+        \\</script>
+    , .{csrf_token}) catch return;
+    ctx.respond(.ok, "text/html; charset=utf-8", html);
+}
+```
+
+### CSRF error responses
+
+When CSRF validation fails, the middleware returns one of:
+
+| Condition | Response |
+|---|---|
+| Token missing from form and header | `403 Forbidden - Missing CSRF token` |
+| Token present but does not match | `403 Forbidden - Invalid CSRF token` |
+
+## Combining sessions and CSRF
+
+The typical pattern combines both middleware globally and uses them together in controllers:
+
+```zig
+const zzz = @import("zzz");
+
+const App = zzz.Router.define(.{
+    .middleware = &.{
+        zzz.errorHandler(.{ .show_details = true }),
+        zzz.logger,
+        zzz.bodyParser,
+        zzz.session(.{}),
+        zzz.csrf(.{}),
+    },
+    .routes = &.{
+        zzz.Router.get("/login", loginPage),
+        zzz.Router.post("/login", loginSubmit),
+        zzz.Router.get("/dashboard", dashboard),
+    },
+});
+
+fn loginPage(ctx: *zzz.Context) !void {
+    const csrf_token = ctx.getAssign("csrf_token") orelse "";
+    const session_id = ctx.getAssign("session_id") orelse "";
+
+    var buf: [1024]u8 = undefined;
+    const body = std.fmt.bufPrint(&buf,
+        \\{{"page":"login","session_id":"{s}","csrf_token":"{s}"}}
+    , .{ session_id, csrf_token }) catch return;
+    ctx.json(.ok, body);
+}
+
+fn loginSubmit(ctx: *zzz.Context) !void {
+    // CSRF validation already passed if we reach here
+    ctx.assign("user_name", "alice");
+    ctx.json(.ok, "{\"result\":\"success\",\"message\":\"CSRF validation passed\"}");
+}
+
+fn dashboard(ctx: *zzz.Context) !void {
+    const user = ctx.getAssign("user_name") orelse "guest";
+    var buf: [256]u8 = undefined;
+    const body = std.fmt.bufPrint(&buf,
+        \\{{"page":"dashboard","user":"{s}"}}
+    , .{user}) catch return;
+    ctx.json(.ok, body);
+}
+```
+
+## Next steps
+
+- [Auth Overview](/authentication/overview/) -- how all security middleware fits together
+- [Bearer and Basic Auth](/authentication/bearer-and-basic/) -- HTTP authentication schemes
+- [JWT Authentication](/authentication/jwt/) -- token-based API authentication
+- [Rate Limiting](/authentication/rate-limiting/) -- throttle requests per client

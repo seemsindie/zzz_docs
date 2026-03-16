@@ -1,0 +1,187 @@
+---
+title: "Transactions"
+description: "Database transactions with nested savepoints and isolation levels."
+---
+
+import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
+
+zzz_db provides a `Transaction` API with begin/commit/rollback, automatic nested transactions via savepoints, configurable isolation levels, and a convenience `run` function that handles commit/rollback lifecycle for you.
+
+## Basic transactions
+
+The `Transaction` type is parameterized by backend, just like other zzz_db types. All methods are static functions that operate on a connection.
+
+```zig
+const zzz_db = @import("zzz_db");
+const sqlite = zzz_db.sqlite;
+const Txn = zzz_db.Transaction(sqlite);
+```
+
+### Begin, commit, and rollback
+
+<Steps>
+1. Open a transaction with `begin`:
+
+   ```zig
+   var conn = try Connection(sqlite).open(.{});
+   defer conn.close();
+
+   try Txn.begin(&conn);
+   ```
+
+2. Execute operations within the transaction:
+
+   ```zig
+   try conn.exec("INSERT INTO users (name) VALUES ('Alice')");
+   try conn.exec("INSERT INTO users (name) VALUES ('Bob')");
+   ```
+
+3. Commit or rollback:
+
+   ```zig
+   try Txn.commit(&conn);
+   // Or, to discard changes:
+   // try Txn.rollback(&conn);
+   ```
+</Steps>
+
+The connection tracks its own state. After `begin`, the connection state is `.in_transaction`. After `commit` or `rollback`, it returns to `.connected`.
+
+### Rollback on error
+
+Use `errdefer` to automatically roll back when an error occurs:
+
+```zig
+try Txn.begin(&conn);
+errdefer Txn.rollback(&conn) catch {};
+
+try conn.exec("UPDATE accounts SET balance = balance - 100 WHERE id = 1");
+try conn.exec("UPDATE accounts SET balance = balance + 100 WHERE id = 2");
+
+try Txn.commit(&conn);
+```
+
+If either `UPDATE` fails, the `errdefer` triggers a rollback and neither change persists.
+
+## The `run` helper
+
+For the common pattern of "check out a connection, begin, do work, commit or rollback," use `Transaction.run`. It handles the full lifecycle:
+
+```zig
+const Txn = zzz_db.Transaction(sqlite);
+const Conn = zzz_db.Connection(sqlite);
+
+try Txn.run(&pool, &struct {
+    fn func(conn: *Conn) !void {
+        try conn.exec("INSERT INTO users (name) VALUES ('Alice')");
+        try conn.exec("INSERT INTO logs (msg) VALUES ('user created')");
+    }
+}.func);
+```
+
+`run` will:
+- Check out a connection from the pool
+- Call `begin`
+- Execute your function
+- Call `commit` on success, or `rollback` on error (via `errdefer`)
+- Release the connection back to the pool
+
+If your function returns an error, `run` propagates it after rolling back.
+
+## Nested transactions (savepoints)
+
+When you call `begin` on a connection that is already in a transaction, zzz_db creates a savepoint instead of a real transaction. This allows nesting without database-level conflicts.
+
+```zig
+try Txn.begin(&conn);             // Real BEGIN
+try conn.exec("INSERT INTO users (name) VALUES ('A')");
+
+try Txn.begin(&conn);             // SAVEPOINT sp_1
+try conn.exec("INSERT INTO users (name) VALUES ('B')");
+try Txn.rollback(&conn);          // ROLLBACK TO SAVEPOINT sp_1 (B is gone)
+
+try Txn.commit(&conn);            // COMMIT (only A persists)
+```
+
+Savepoints nest to arbitrary depth. Each level increments the connection's `savepoint_depth` counter:
+
+| Call | SQL executed | `savepoint_depth` |
+|---|---|---|
+| `begin` (first) | `BEGIN` | 0 |
+| `begin` (nested) | `SAVEPOINT sp_1` | 1 |
+| `begin` (nested) | `SAVEPOINT sp_2` | 2 |
+| `commit` | `RELEASE SAVEPOINT sp_2` | 1 |
+| `rollback` | `ROLLBACK TO SAVEPOINT sp_1` | 0 |
+| `commit` | `COMMIT` | 0 (state: `.connected`) |
+
+Rolling back a savepoint also discards any savepoints that were released into it. For example, if you commit `sp_2` (releasing it into `sp_1`) and then rollback `sp_1`, both B and C changes are reverted.
+
+## Isolation levels
+
+Use `beginWithIsolation` to start a transaction with a specific isolation level:
+
+```zig
+try Txn.beginWithIsolation(&conn, .serializable);
+// ... operations ...
+try Txn.commit(&conn);
+```
+
+The available isolation levels are:
+
+| Level | Description |
+|---|---|
+| `.read_uncommitted` | Allows dirty reads (PostgreSQL treats as `.read_committed`) |
+| `.read_committed` | Default for PostgreSQL. Each statement sees committed data as of statement start. |
+| `.repeatable_read` | Snapshot at transaction start. |
+| `.serializable` | Full serialization. Highest isolation. |
+
+<Tabs>
+  <TabItem label="SQLite">
+    SQLite maps isolation levels to its own locking modes:
+    - `.serializable` maps to `BEGIN EXCLUSIVE`
+    - All other levels map to `BEGIN IMMEDIATE`
+
+    SQLite does not support `beginWithIsolation` inside an existing transaction -- it returns `error.AlreadyInTransaction`.
+  </TabItem>
+  <TabItem label="PostgreSQL">
+    PostgreSQL issues `BEGIN` followed by `SET TRANSACTION ISOLATION LEVEL`:
+
+    ```sql
+    BEGIN;
+    SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;
+    ```
+
+    Like SQLite, calling `beginWithIsolation` inside an existing transaction returns `error.AlreadyInTransaction`. Use regular `begin` for nested savepoints.
+  </TabItem>
+</Tabs>
+
+## Error handling
+
+Transactions can produce the following errors:
+
+| Error | When |
+|---|---|
+| `error.AlreadyInTransaction` | Calling `beginWithIsolation` when already in a transaction. Use `begin` for nested savepoints instead. |
+| Backend-specific errors | Any SQL error from the underlying `conn.exec` call (e.g., constraint violations, connection failures). |
+
+A typical error-safe pattern:
+
+```zig
+fn transferFunds(conn: *Conn, from: i64, to: i64, amount: i64) !void {
+    try Txn.begin(conn);
+    errdefer Txn.rollback(conn) catch {};
+
+    // These will rollback automatically if either fails
+    try debit(conn, from, amount);
+    try credit(conn, to, amount);
+
+    try Txn.commit(conn);
+}
+```
+
+## Next steps
+
+- [Migrations](/database/migrations/) -- each migration runs inside its own transaction automatically
+- [Database Testing](/database/testing/) -- `TestSandbox` uses transactions to isolate test data
+- [Query Builder](/database/query-builder/) -- compose queries to run within transactions
+- [Repository](/database/repository/) -- use `repo.insert` / `repo.update` inside transaction blocks

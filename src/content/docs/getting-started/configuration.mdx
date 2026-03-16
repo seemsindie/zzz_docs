@@ -1,0 +1,296 @@
+---
+title: "Configuration"
+description: "Configuring your zzz application server and environment variables."
+---
+
+import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
+
+zzz uses a two-layer configuration system: **comptime defaults** baked in at build time and **runtime overrides** loaded from `.env` files and system environment variables. This page covers the server config options, the environment system, and how they fit together.
+
+## Server configuration
+
+Pass a `Config` struct to `Server.init` to control how the HTTP server behaves:
+
+```zig
+var server = zzz.Server.init(allocator, .{
+    .host = "0.0.0.0",
+    .port = 8080,
+    .worker_threads = 8,
+    .read_timeout_ms = 15_000,
+}, App.handler);
+```
+
+### Config fields
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `host` | `[]const u8` | `"127.0.0.1"` | IP address to bind to. Use `"0.0.0.0"` in production to accept connections on all interfaces. |
+| `port` | `u16` | `8888` | TCP port to listen on. |
+| `max_body_size` | `usize` | `1048576` (1 MB) | Maximum request body size in bytes. Requests exceeding this are rejected. |
+| `max_header_size` | `usize` | `16384` (16 KB) | Maximum total size of HTTP headers in bytes. |
+| `read_timeout_ms` | `u32` | `30000` (30 s) | Time in milliseconds to wait for data from the client before closing the connection. |
+| `write_timeout_ms` | `u32` | `30000` (30 s) | Time in milliseconds to wait for a write to complete before closing the connection. |
+| `keepalive_timeout_ms` | `u32` | `65000` (65 s) | How long to keep an idle connection open waiting for the next request. |
+| `worker_threads` | `u16` | `4` | Number of OS threads for handling connections. Set to `0` for single-threaded mode. |
+| `max_connections` | `u32` | `1024` | Maximum number of simultaneous connections the server will accept. |
+| `max_requests_per_connection` | `u32` | `100` | Maximum number of HTTP requests to serve on a single keep-alive connection before closing it. |
+| `kernel_backlog` | `u31` | `128` | Size of the kernel TCP listen backlog queue. |
+| `tls` | `?TlsConfig` | `null` | TLS certificate and key for HTTPS. Set to `null` to serve plain HTTP. |
+
+### TLS configuration
+
+To enable HTTPS, pass a `TlsConfig` with paths to your certificate and private key:
+
+```zig
+var server = zzz.Server.init(allocator, .{
+    .port = 443,
+    .tls = .{
+        .cert_file = "/etc/ssl/certs/app.crt",
+        .key_file = "/etc/ssl/private/app.key",
+    },
+}, App.handler);
+```
+
+The `TlsConfig` struct has two fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `cert_file` | `[:0]const u8` | Path to the PEM-encoded certificate file. |
+| `key_file` | `[:0]const u8` | Path to the PEM-encoded private key file. |
+
+TLS support requires building with the `tls` option enabled. When `tls` is `null` (the default), the server runs in plain HTTP mode.
+
+## Application configuration
+
+The scaffolded project uses a separate config layer for application-level settings like host, port, and secrets. This is distinct from the server `Config` struct -- it is your own struct that you define in `config/config.zig`.
+
+### The AppConfig struct
+
+```zig
+// config/config.zig
+pub const AppConfig = struct {
+    host: []const u8 = "127.0.0.1",
+    port: u16 = 4000,
+    secret_key_base: []const u8 = "change-me-in-production",
+};
+```
+
+When using `--db=sqlite` or `--db=postgres`, the scaffold adds a `database_url` field:
+
+```zig
+pub const AppConfig = struct {
+    host: []const u8 = "127.0.0.1",
+    port: u16 = 4000,
+    secret_key_base: []const u8 = "change-me-in-production",
+    database_url: []const u8 = "",
+};
+```
+
+You can add any fields you need to this struct. Each field becomes automatically overridable via environment variables.
+
+### Per-environment defaults
+
+Each environment file provides comptime defaults for `AppConfig`:
+
+<Tabs>
+  <TabItem label="dev.zig">
+    ```zig
+    const AppConfig = @import("config").AppConfig;
+
+    pub const config: AppConfig = .{
+        .host = "127.0.0.1",
+        .port = 4000,
+        .secret_key_base = "dev-secret-not-for-production",
+    };
+    ```
+  </TabItem>
+  <TabItem label="prod.zig">
+    ```zig
+    const AppConfig = @import("config").AppConfig;
+
+    pub const config: AppConfig = .{
+        .host = "0.0.0.0",
+        .port = 8080,
+        .secret_key_base = "MUST-BE-SET-VIA-ENV",
+    };
+    ```
+  </TabItem>
+  <TabItem label="staging.zig">
+    ```zig
+    const AppConfig = @import("config").AppConfig;
+
+    pub const config: AppConfig = .{
+        .host = "0.0.0.0",
+        .port = 8080,
+        .secret_key_base = "MUST-BE-SET-VIA-ENV",
+    };
+    ```
+  </TabItem>
+</Tabs>
+
+Select the environment at build time:
+
+```bash
+zig build run              # uses config/dev.zig (default)
+zig build run -Denv=prod   # uses config/prod.zig
+zig build run -Denv=staging
+```
+
+## Environment variables
+
+### The Env loader
+
+`zzz.Env` loads environment variables from `.env` files and the system environment. It is initialized in `main` before the server starts:
+
+```zig
+var env = try zzz.Env.init(allocator, .{});
+defer env.deinit();
+```
+
+### Env.Options
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `path` | `?[]const u8` | `".env"` | Path to the base `.env` file. Set to `null` to skip file loading entirely. |
+| `environment` | `?[]const u8` | `null` | Environment name (e.g. `"dev"`, `"prod"`). When set, also loads `.env.{environment}` as an overlay on top of the base file. |
+| `system_env` | `bool` | `true` | Whether to override loaded values with system environment variables. |
+
+### Precedence order
+
+Values are resolved from highest to lowest priority:
+
+1. **System environment variables** (e.g. `export PORT=9000`)
+2. **`.env.{environment}`** overlay file (if `environment` is set in options)
+3. **`.env`** base file
+4. **Comptime defaults** from the selected config file (`dev.zig`, `prod.zig`, etc.)
+
+### .env file format
+
+The `.env` parser supports comments, quoted values, inline comments, and the `export` prefix:
+
+```bash
+# Comments start with #
+HOST=127.0.0.1
+PORT=4000
+SECRET_KEY_BASE=dev-secret-not-for-production
+
+# Quoted values preserve spaces and special characters
+APP_NAME="My App"
+GREETING='Hello, world!'
+
+# Inline comments work on unquoted values
+TIMEOUT=30 # seconds
+
+# export prefix is stripped automatically
+export DATABASE_URL=postgres://user:pass@localhost:5432/mydb
+```
+
+Duplicate keys are resolved with a last-wins policy. The file is capped at 1 MB.
+
+### Accessing env vars directly
+
+In addition to the automatic `mergeWithEnv` flow, you can read individual environment variables using the `Env` API:
+
+```zig
+var env = try zzz.Env.init(allocator, .{});
+defer env.deinit();
+
+// String lookup (returns ?[]const u8)
+const db_url = env.get("DATABASE_URL");
+
+// With a fallback default
+const log_level = env.getDefault("LOG_LEVEL", "info");
+
+// Required -- returns error if missing
+const secret = try env.require("SECRET_KEY_BASE");
+
+// Typed accessors
+const port = env.getInt(u16, "PORT", 4000);
+const debug = env.getBool("DEBUG", false);
+```
+
+### Sensitive value masking
+
+`Env.maskSensitive` returns `"***"` for keys that contain sensitive patterns (`SECRET`, `PASSWORD`, `TOKEN`, `KEY`, `DATABASE_URL`, `PRIVATE`). This is useful for logging:
+
+```zig
+for (env.entries.items) |entry| {
+    std.log.info("{s}={s}", .{ entry.key, env.maskSensitive(entry.key, entry.value) });
+}
+```
+
+## Merging config with environment
+
+`mergeWithEnv` bridges comptime config and runtime env vars. For each field in your config struct, it looks up the corresponding `UPPER_SNAKE_CASE` environment variable and, if found, parses it into the field's type:
+
+```zig
+const config = zzz.mergeWithEnv(@TypeOf(app_config.config), app_config.config, &env);
+```
+
+The field-to-variable mapping is automatic:
+
+| Struct field | Environment variable |
+|-------------|---------------------|
+| `host` | `HOST` |
+| `port` | `PORT` |
+| `secret_key_base` | `SECRET_KEY_BASE` |
+| `database_url` | `DATABASE_URL` |
+
+Supported field types for automatic parsing:
+
+| Type | Parsing behavior |
+|------|-----------------|
+| `[]const u8` | Used as-is (string passthrough) |
+| `u16`, `u32`, `u64`, `i16`, `i32`, `i64` | Parsed as base-10 integer |
+| `bool` | Recognizes `true`/`1`/`yes` and `false`/`0`/`no` |
+| `enum` with `fromString` | Calls `T.fromString(value)` |
+| Other `enum` | Uses `std.meta.stringToEnum` |
+
+Nested structs are skipped. If a value cannot be parsed, the comptime default is kept.
+
+### One-call convenience
+
+If you prefer a single function call instead of separate `Env.init` and `mergeWithEnv`, use `configInit`:
+
+```zig
+var result = try zzz.configInit(@TypeOf(app_config.config), app_config.config, allocator, .{});
+defer result.env.deinit();
+
+const config = result.config;
+// result.env is also available if you need direct access
+```
+
+## Wiring config into Server.init
+
+The final step is passing your merged config values to the server:
+
+```zig
+var server = zzz.Server.init(allocator, .{
+    .host = config.host,
+    .port = config.port,
+}, App.handler);
+
+try server.listen(io);
+```
+
+You can also pass additional server-specific options that are not part of your `AppConfig`:
+
+```zig
+var server = zzz.Server.init(allocator, .{
+    .host = config.host,
+    .port = config.port,
+    .worker_threads = 8,
+    .max_body_size = 10 * 1024 * 1024, // 10 MB
+    .read_timeout_ms = 15_000,
+    .tls = if (config.tls_enabled) .{
+        .cert_file = "/etc/ssl/certs/app.crt",
+        .key_file = "/etc/ssl/private/app.key",
+    } else null,
+}, App.handler);
+```
+
+## Next steps
+
+- Understand the [Project Structure](/getting-started/project-structure/) and where config files live
+- Learn about [Routing](/core/routing/) to define your application's endpoints
+- Add [Middleware](/core/middleware/) for logging, CORS, sessions, and more

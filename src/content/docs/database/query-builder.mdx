@@ -1,0 +1,340 @@
+---
+title: "Query Builder"
+description: "Compose database queries with a fluent, type-safe API in zzz_db."
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+The query builder provides a composable fluent API for constructing SELECT statements. Queries are value types -- every method returns a new copy, so you can branch and reuse partial queries freely. The builder produces dialect-aware SQL with `?` placeholders for SQLite and `$N` placeholders for PostgreSQL.
+
+## Creating a query
+
+Queries are parameterized by a schema type. Initialize with `Query(T).init()`:
+
+```zig
+const zzz_db = @import("zzz_db");
+
+const q = zzz_db.Query(User).init();
+```
+
+By default, this selects all columns defined in the schema:
+
+```sql
+SELECT id, name, email, inserted_at, updated_at FROM users
+```
+
+## Where clauses
+
+### Basic where
+
+Filter rows with `where()`. Each call adds an `AND` condition:
+
+```zig
+const q = zzz_db.Query(User).init()
+    .where("name", .eq, "Alice")
+    .where("email", .like, "%@example.com");
+```
+
+```sql
+SELECT ... FROM users WHERE name = ? AND email LIKE ?
+```
+
+### OR conditions
+
+Use `orWhere()` for `OR` clauses:
+
+```zig
+const q = zzz_db.Query(User).init()
+    .where("name", .eq, "Alice")
+    .orWhere("name", .eq, "Bob");
+```
+
+```sql
+SELECT ... FROM users WHERE name = ? OR name = ?
+```
+
+### Comparison operators
+
+The `Op` enum provides these operators:
+
+| Operator      | SQL          | Example                                      |
+| ------------- | ------------ | -------------------------------------------- |
+| `.eq`         | `=`          | `.where("name", .eq, "Alice")`               |
+| `.neq`        | `!=`         | `.where("status", .neq, "deleted")`          |
+| `.gt`         | `>`          | `.where("age", .gt, "18")`                   |
+| `.lt`         | `<`          | `.where("price", .lt, "100")`                |
+| `.gte`        | `>=`         | `.where("score", .gte, "90")`                |
+| `.lte`        | `<=`         | `.where("quantity", .lte, "0")`              |
+| `.like`       | `LIKE`       | `.where("email", .like, "%@example.com")`    |
+| `.is_null`    | `IS NULL`    | `.where("deleted_at", .is_null, null)`       |
+| `.is_not_null`| `IS NOT NULL`| `.where("email", .is_not_null, null)`        |
+
+### NULL checks
+
+For `IS NULL` and `IS NOT NULL`, pass `null` as the value:
+
+```zig
+const q = zzz_db.Query(User).init()
+    .where("deleted_at", .is_null, null)
+    .where("email", .is_not_null, null);
+```
+
+```sql
+SELECT ... FROM users WHERE deleted_at IS NULL AND email IS NOT NULL
+```
+
+### Raw WHERE fragments
+
+For complex conditions like subqueries, use `whereRaw()`:
+
+```zig
+const q = zzz_db.Query(User).init()
+    .whereRaw("id IN (SELECT user_id FROM orders)");
+```
+
+```sql
+SELECT ... FROM users WHERE id IN (SELECT user_id FROM orders)
+```
+
+Raw fragments are inserted as-is -- no bind parameters are generated.
+
+## Ordering
+
+Use `orderBy()` to sort results. Multiple calls add additional sort columns:
+
+```zig
+const q = zzz_db.Query(User).init()
+    .orderBy("name", .asc)
+    .orderBy("inserted_at", .desc);
+```
+
+```sql
+SELECT ... FROM users ORDER BY name ASC, inserted_at DESC
+```
+
+The `Order` enum provides `.asc` and `.desc`.
+
+## Pagination
+
+Control result size with `limit()` and `offset()`:
+
+```zig
+const page = 3;
+const per_page = 20;
+
+const q = zzz_db.Query(User).init()
+    .orderBy("id", .asc)
+    .limit(per_page)
+    .offset((page - 1) * per_page);
+```
+
+```sql
+SELECT ... FROM users ORDER BY id ASC LIMIT 20 OFFSET 40
+```
+
+## Joins
+
+### Inner join
+
+```zig
+const q = zzz_db.Query(User).init()
+    .select("users.*, posts.title")
+    .innerJoin("posts", "users.id", "posts.user_id");
+```
+
+```sql
+SELECT users.*, posts.title FROM users INNER JOIN posts ON users.id = posts.user_id
+```
+
+### Left join
+
+```zig
+const q = zzz_db.Query(User).init()
+    .select("users.*, orders.total")
+    .leftJoin("orders", "users.id", "orders.user_id")
+    .where("orders.total", .gt, "100");
+```
+
+```sql
+SELECT users.*, orders.total FROM users LEFT JOIN orders ON users.id = orders.user_id WHERE orders.total > ?
+```
+
+### Generic join
+
+For right and full joins, use the generic `join()` method:
+
+```zig
+const q = zzz_db.Query(User).init()
+    .join(.right, "departments", "users.dept_id", "departments.id");
+```
+
+Available join types: `.inner`, `.left`, `.right`, `.full`.
+
+## Group by and having
+
+### Group by
+
+```zig
+const q = zzz_db.Query(User).init()
+    .select("name, COUNT(*) as cnt")
+    .groupBy("name");
+```
+
+```sql
+SELECT name, COUNT(*) as cnt FROM users GROUP BY name
+```
+
+### Having
+
+Filter groups with `having()`:
+
+```zig
+const q = zzz_db.Query(User).init()
+    .select("name, COUNT(*) as cnt")
+    .groupBy("name")
+    .having("COUNT(*)", .gt, "1");
+```
+
+```sql
+SELECT name, COUNT(*) as cnt FROM users GROUP BY name HAVING COUNT(*) > ?
+```
+
+### Combined example
+
+```zig
+const q = zzz_db.Query(User).init()
+    .select("users.name, COUNT(posts.id) as post_count")
+    .innerJoin("posts", "users.id", "posts.user_id")
+    .groupBy("users.name")
+    .having("COUNT(posts.id)", .gte, "5")
+    .orderBy("post_count", .desc)
+    .limit(10);
+```
+
+## Custom select fields
+
+Override the default column list with `select()`:
+
+```zig
+const q = zzz_db.Query(User).init()
+    .select("name, email");
+```
+
+```sql
+SELECT name, email FROM users
+```
+
+## Raw SQL fragments
+
+Append arbitrary SQL to the end of the query with `raw()`:
+
+```zig
+const q = zzz_db.Query(User).init()
+    .raw("FOR UPDATE");
+```
+
+```sql
+SELECT ... FROM users FOR UPDATE
+```
+
+## Merging queries
+
+Combine two queries with `merge()`. The second query's clauses are appended to the first:
+
+```zig
+const base = zzz_db.Query(User).init()
+    .where("name", .eq, "Alice");
+
+const pagination = zzz_db.Query(User).init()
+    .limit(10)
+    .offset(20);
+
+const combined = base.merge(pagination);
+```
+
+```sql
+SELECT ... FROM users WHERE name = ? LIMIT 10 OFFSET 20
+```
+
+Merge combines where clauses, order clauses, join clauses, group by fields, and having clauses. Limit, offset, select fields, and raw fragments from the second query override the first if set.
+
+This is useful for building reusable query fragments:
+
+```zig
+fn paginated(comptime T: type, page: u32, per_page: u32) zzz_db.Query(T) {
+    return zzz_db.Query(T).init()
+        .limit(per_page)
+        .offset((page - 1) * per_page);
+}
+
+const q = zzz_db.Query(User).init()
+    .where("active", .eq, "1")
+    .orderBy("name", .asc)
+    .merge(paginated(User, 3, 25));
+```
+
+## Executing queries
+
+Queries are executed through the [Repository](/database/repository/):
+
+```zig
+var repo = zzz_db.SqliteRepo.init(&pool);
+
+// Get all results
+const users = try repo.all(User, query, allocator);
+defer zzz_db.freeAll(User, users, allocator);
+
+// Get first result
+if (try repo.one(User, query, allocator)) |*user| {
+    defer zzz_db.freeOne(User, user, allocator);
+}
+
+// Count matching rows
+const total = try repo.count(User, query, allocator);
+
+// Check existence
+const has_match = try repo.exists(User, query, allocator);
+
+// Run aggregate
+const avg = try repo.aggregate(User, query, .avg, "score", allocator);
+```
+
+## Dialect-aware SQL generation
+
+The query builder automatically generates the correct placeholder syntax for each backend:
+
+<Tabs>
+<TabItem label="SQLite">
+```sql
+SELECT ... FROM users WHERE name = ? AND email LIKE ?
+```
+</TabItem>
+<TabItem label="PostgreSQL">
+```sql
+SELECT ... FROM users WHERE name = $1 AND email LIKE $2
+```
+</TabItem>
+</Tabs>
+
+This happens transparently when the repo executes the query -- you do not need to think about placeholders.
+
+## Capacity limits
+
+The query builder uses fixed-size arrays for clauses to avoid heap allocation:
+
+| Clause type   | Maximum |
+| ------------- | ------- |
+| WHERE clauses | 16      |
+| ORDER BY      | 4       |
+| JOINs         | 4       |
+| GROUP BY      | 4       |
+| HAVING        | 4       |
+
+If you exceed these limits, additional clauses are silently dropped. For very complex queries, consider using `repo.rawAll()` or `repo.rawOne()` instead.
+
+## Next steps
+
+- [Repository](/database/repository/) -- execute queries and retrieve typed results
+- [Schema](/database/schema/) -- define the structs that queries operate on
+- [Changesets](/database/changesets/) -- validate data before insert or update
+- [Transactions](/database/transactions/) -- wrap query execution in transactions

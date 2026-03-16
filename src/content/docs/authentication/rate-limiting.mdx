@@ -1,0 +1,179 @@
+---
+title: "Rate Limiting"
+description: "Configure the zzz rate limiting middleware to throttle requests using a token bucket algorithm, with per-route and global strategies."
+---
+
+import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
+
+The `rateLimit` middleware throttles incoming requests using a token bucket algorithm. Each client is identified by a configurable request header and gets a fixed number of tokens per time window. When the tokens are exhausted, subsequent requests receive a `429 Too Many Requests` response.
+
+## Configuration
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `max_requests` | `u32` | `60` | Maximum number of requests allowed per window |
+| `window_seconds` | `u32` | `60` | Duration of the rate limit window in seconds |
+| `key_header` | `[]const u8` | `"X-Forwarded-For"` | Request header used to identify clients |
+
+## Basic usage
+
+Apply the rate limiter to a scope of routes:
+
+```zig
+const zzz = @import("zzz");
+
+const routes = zzz.Router.scope("/api", &.{
+    zzz.rateLimit(.{ .max_requests = 10, .window_seconds = 60 }),
+}, &.{
+    zzz.Router.get("/data", dataHandler),
+    zzz.Router.post("/submit", submitHandler),
+});
+```
+
+This allows each client (identified by the `X-Forwarded-For` header) up to 10 requests per 60-second window across all routes in the `/api` scope.
+
+## How the token bucket works
+
+<Steps>
+
+1. When a request arrives, the middleware extracts the client key from the configured header (default: `X-Forwarded-For`). If the header is missing, the key `"unknown"` is used.
+
+2. The middleware looks up the client's bucket. If no bucket exists, a new one is created with `max_requests` tokens.
+
+3. Before checking the token count, the middleware refills the bucket if a full window has elapsed since the last refill. Tokens are refilled to `max_requests` (a full reset, not a gradual drip).
+
+4. If tokens are available, one token is consumed and the request proceeds to `ctx.next()`.
+
+5. If no tokens remain, the middleware returns `429 Too Many Requests` with a `Retry-After` header indicating how many seconds the client should wait.
+
+</Steps>
+
+## Per-route rate limiting
+
+Apply different rate limits to different route groups using scopes:
+
+```zig
+const routes =
+    // Strict limit on auth endpoints
+    zzz.Router.scope("/auth", &.{
+        zzz.rateLimit(.{ .max_requests = 5, .window_seconds = 300 }),
+    }, &.{
+        zzz.Router.post("/login", loginHandler),
+        zzz.Router.post("/register", registerHandler),
+    })
+    // More generous limit on general API
+    ++ zzz.Router.scope("/api", &.{
+        zzz.rateLimit(.{ .max_requests = 100, .window_seconds = 60 }),
+    }, &.{
+        zzz.Router.get("/users", usersHandler),
+        zzz.Router.get("/posts", postsHandler),
+    });
+```
+
+Because each comptime configuration produces its own isolated bucket store, the `/auth` and `/api` scopes track their limits independently. A client that exhausts their `/auth` limit can still make requests to `/api`.
+
+## Global rate limiting
+
+To apply a rate limit to every route, add the middleware to the top-level `Router.define`:
+
+```zig
+const App = zzz.Router.define(.{
+    .middleware = &.{
+        zzz.errorHandler(.{}),
+        zzz.logger,
+        zzz.rateLimit(.{ .max_requests = 120, .window_seconds = 60 }),
+    },
+    .routes = routes,
+});
+```
+
+## Client identification
+
+The `key_header` option determines how clients are identified. Choose the header that best matches your deployment:
+
+| Header | Use case |
+|---|---|
+| `X-Forwarded-For` (default) | Behind a reverse proxy (nginx, Cloudflare, etc.) |
+| `X-Real-IP` | Alternative proxy header |
+| `Authorization` | Rate limit per API key / token |
+| Any custom header | Application-specific identification |
+
+```zig
+// Rate limit by API key instead of IP
+zzz.rateLimit(.{
+    .max_requests = 1000,
+    .window_seconds = 3600,
+    .key_header = "Authorization",
+})
+```
+
+If the configured header is not present on a request, the client key defaults to `"unknown"` and all unidentified clients share a single bucket.
+
+## Response headers
+
+When a client exceeds the rate limit, the middleware returns:
+
+```
+HTTP/1.1 429 Too Many Requests
+Content-Type: text/plain; charset=utf-8
+Retry-After: 60
+
+429 Too Many Requests
+```
+
+The `Retry-After` value is the `window_seconds` setting, indicating when the bucket will fully refill.
+
+## Bucket store details
+
+- **Maximum clients**: 256 concurrent client buckets per comptime configuration
+- **Client key length**: up to 64 bytes (longer keys are truncated)
+- **Refill strategy**: full refill when the entire window has elapsed; no partial refills
+- **Store full behavior**: if all 256 bucket slots are occupied and a new client arrives, the request is allowed through without rate limiting
+- **Isolation**: each unique `RateLimitConfig` generates its own static bucket array at comptime
+
+## Example: combining rate limiting with auth
+
+A common pattern is to rate-limit authentication endpoints more strictly while also requiring auth on API routes:
+
+```zig
+const zzz = @import("zzz");
+
+const routes =
+    // Public auth endpoints with strict rate limiting
+    zzz.Router.scope("/auth", &.{
+        zzz.rateLimit(.{ .max_requests = 5, .window_seconds = 300 }),
+    }, &.{
+        zzz.Router.post("/login", loginHandler),
+    })
+    // Protected API with moderate rate limiting
+    ++ zzz.Router.scope("/api", &.{
+        zzz.rateLimit(.{ .max_requests = 60, .window_seconds = 60 }),
+        zzz.bearerAuth(.{ .required = true }),
+    }, &.{
+        zzz.Router.get("/profile", profileHandler),
+    });
+```
+
+In this setup, scoped middleware runs in declaration order: the rate limiter runs first and rejects excess requests before the bearer auth middleware even checks for a token.
+
+## Testing rate limits
+
+Use curl to observe rate limiting in action:
+
+```bash
+# Send 11 requests rapidly (with a limit of 10)
+for i in $(seq 1 11); do
+    curl -s -o /dev/null -w "%{http_code}\n" \
+        -H "X-Forwarded-For: test-client" \
+        http://127.0.0.1:9000/api/data
+done
+```
+
+The first 10 requests will return `200`, and the 11th will return `429`.
+
+## Next steps
+
+- [Auth Overview](/authentication/overview/) -- how all security middleware fits together
+- [Bearer and Basic Auth](/authentication/bearer-and-basic/) -- token and credential authentication
+- [JWT Authentication](/authentication/jwt/) -- signed token verification
+- [Sessions and CSRF](/authentication/sessions-and-csrf/) -- session management and CSRF protection

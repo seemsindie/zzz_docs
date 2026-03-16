@@ -1,0 +1,289 @@
+---
+title: "Context"
+description: "Access request data, build responses, manage cookies, and render templates with the Context struct."
+---
+
+The `Context` struct flows through the entire middleware and handler chain. It provides access to the incoming request, the outgoing response, path/query parameters, parsed body data, assigns, and convenience methods for common response patterns.
+
+## Handler signature
+
+Every route handler and middleware has the same signature:
+
+```zig
+fn handler(ctx: *zzz.Context) !void {
+    // ...
+}
+```
+
+## Reading request data
+
+### Path parameters
+
+Path parameters defined with `:name` in the route pattern are available through `ctx.pathParam()` or the unified `ctx.param()` lookup:
+
+```zig
+// Route: Router.get("/users/:id", getUser)
+fn getUser(ctx: *zzz.Context) !void {
+    const id = ctx.pathParam("id") orelse "unknown";
+    ctx.text(.ok, id);
+}
+```
+
+### Query parameters
+
+Query string values are parsed automatically:
+
+```zig
+// GET /search?q=zig&page=2
+fn search(ctx: *zzz.Context) !void {
+    const query = ctx.query.get("q") orelse "";
+    const page = ctx.query.get("page") orelse "1";
+    _ = query;
+    _ = page;
+    ctx.json(.ok, "{}");
+}
+```
+
+### Unified parameter lookup
+
+`ctx.param(name)` searches in order: path params, body form fields, then query params. This is convenient when you want a single lookup regardless of source:
+
+```zig
+const name = ctx.param("name") orelse "anonymous";
+```
+
+For explicit lookups, use the specific accessors:
+
+| Method | Source |
+|--------|--------|
+| `ctx.pathParam(name)` | Path parameters only (`:name` segments) |
+| `ctx.formValue(name)` | Parsed body fields (form/JSON/multipart) |
+| `ctx.query.get(name)` | Query string parameters |
+| `ctx.param(name)` | All three, in the order above |
+
+### Request body
+
+The body parser middleware populates `ctx.parsed_body`. You can also access the raw body and JSON directly:
+
+```zig
+// Parsed form/JSON fields
+const email = ctx.formValue("email") orelse "";
+
+// Raw JSON string (only when Content-Type is application/json)
+const json_str = ctx.jsonBody() orelse "null";
+
+// Raw body bytes regardless of content type
+const raw = ctx.rawBody() orelse "";
+```
+
+### File uploads
+
+For multipart form data, retrieve uploaded files by field name:
+
+```zig
+if (ctx.file("avatar")) |f| {
+    // f.filename     -- original filename
+    // f.content_type -- MIME type
+    // f.data         -- file bytes
+    std.log.info("Uploaded: {s} ({d} bytes)", .{f.filename, f.data.len});
+}
+```
+
+### Request headers
+
+Access request headers through the request struct:
+
+```zig
+const auth = ctx.request.header("Authorization") orelse "";
+const content_type = ctx.request.contentType() orelse "text/plain";
+```
+
+### Request properties
+
+```zig
+const method = ctx.request.method;  // .GET, .POST, etc.
+const path = ctx.request.path;      // "/users/42"
+const body = ctx.request.body;      // ?[]const u8
+```
+
+## Building responses
+
+### Text, JSON, and HTML
+
+The three most common response types have convenience methods:
+
+```zig
+ctx.text(.ok, "Hello, world!");
+ctx.json(.ok, "{\"status\": \"ok\"}");
+ctx.html(.ok, "<h1>Hello</h1>");
+```
+
+Each sets the appropriate `Content-Type` header automatically:
+
+| Method | Content-Type |
+|--------|-------------|
+| `ctx.text(status, body)` | `text/plain; charset=utf-8` |
+| `ctx.json(status, body)` | `application/json; charset=utf-8` |
+| `ctx.html(status, body)` | `text/html; charset=utf-8` |
+
+### Custom responses
+
+For full control, use `ctx.respond()`:
+
+```zig
+ctx.respond(.ok, "application/xml; charset=utf-8", "<root/>");
+```
+
+Or set response fields directly:
+
+```zig
+ctx.response.status = .ok;
+ctx.response.body = "custom body";
+ctx.response.headers.append(ctx.allocator, "X-Custom", "value") catch {};
+```
+
+### Redirects
+
+```zig
+ctx.redirect("/dashboard", .found);                // 302 Found
+ctx.redirect("/new-location", .moved_permanently);  // 301
+```
+
+### Sending files
+
+Read a file from disk and send it as the response. MIME type is auto-detected from the extension if not provided:
+
+```zig
+ctx.sendFile("public/report.pdf", null);             // auto-detect MIME
+ctx.sendFile("data.csv", "text/csv; charset=utf-8"); // explicit MIME
+```
+
+Path traversal (`..`) is rejected automatically with a 403 response. Files are capped at 10 MB.
+
+### Status codes
+
+zzz uses a `StatusCode` enum. Common values:
+
+| Enum value | HTTP code |
+|-----------|-----------|
+| `.ok` | 200 |
+| `.created` | 201 |
+| `.no_content` | 204 |
+| `.moved_permanently` | 301 |
+| `.found` | 302 |
+| `.bad_request` | 400 |
+| `.unauthorized` | 401 |
+| `.forbidden` | 403 |
+| `.not_found` | 404 |
+| `.internal_server_error` | 500 |
+
+## Cookies
+
+### Setting a cookie
+
+```zig
+ctx.setCookie("theme", "dark", .{
+    .max_age = 86400,      // 1 day
+    .path = "/",
+    .http_only = true,
+    .secure = true,
+    .same_site = .lax,     // .lax, .strict, or .none
+});
+```
+
+### Reading a cookie
+
+```zig
+const theme = ctx.getCookie("theme") orelse "light";
+```
+
+### Deleting a cookie
+
+```zig
+ctx.deleteCookie("theme", "/");
+```
+
+This sets `Max-Age=0` and an `Expires` date in the past.
+
+## Assigns
+
+Assigns are a fixed-size (max 16) key-value store for passing string data between middleware and handlers:
+
+```zig
+// Store a value
+ctx.assign("user_id", "42");
+
+// Retrieve a value
+const user_id = ctx.getAssign("user_id") orelse "anonymous";
+```
+
+Assigns are commonly used by middleware to pass extracted data (auth tokens, session IDs, request IDs) to downstream handlers.
+
+## Rendering templates
+
+zzz includes a compile-time template engine. The Context provides several render methods:
+
+```zig
+// Render a template as HTML
+try ctx.render(MyTemplate, .ok, .{ .title = "Home" });
+
+// Render with a layout wrapper
+try ctx.renderWithLayout(LayoutTmpl, ContentTmpl, .ok, .{
+    .title = "About",
+});
+
+// Render a partial (no layout) -- useful for htmx fragments
+try ctx.renderPartial(FragmentTmpl, .ok, .{ .count = "5" });
+
+// Render with layout and named yield blocks
+try ctx.renderWithLayoutAndYields(LayoutTmpl, ContentTmpl, .ok, data, .{
+    .head = "<link rel=\"stylesheet\" href=\"/extra.css\">",
+    .scripts = "<script src=\"/extra.js\"></script>",
+});
+```
+
+## htmx helpers
+
+When using the htmx middleware, the Context provides helpers for htmx-aware responses:
+
+```zig
+// Check if the request came from htmx
+if (ctx.isHtmx()) {
+    try ctx.renderPartial(Fragment, .ok, data);
+} else {
+    try ctx.renderWithLayout(Layout, Page, .ok, data);
+}
+
+// Set htmx response headers
+ctx.htmxRedirect("/new-page");
+ctx.htmxTrigger("itemAdded");
+ctx.htmxPushUrl("/updated");
+ctx.htmxReswap("outerHTML");
+ctx.htmxRetarget("#main");
+ctx.htmxTriggerAfterSwap("formCleared");
+ctx.htmxTriggerAfterSettle("animationDone");
+
+// Get the htmx CDN script tag (set by htmx middleware)
+const script = ctx.htmxScriptTag();
+```
+
+## Calling the next handler
+
+In middleware, call `ctx.next()` to continue the pipeline:
+
+```zig
+fn myMiddleware(ctx: *zzz.Context) !void {
+    // pre-processing
+    try ctx.next();
+    // post-processing (response is ready)
+}
+```
+
+If you do not call `ctx.next()`, the pipeline stops and the current response is sent.
+
+## Next steps
+
+- [Routing](/core/routing/) -- define routes and extract parameters
+- [Middleware](/core/middleware/) -- the request pipeline
+- [Templates](/templates/overview/) -- the compile-time template engine
+- [Static Files](/core/static-files/) -- serving assets from disk

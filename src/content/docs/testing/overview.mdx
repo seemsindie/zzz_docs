@@ -1,0 +1,143 @@
+---
+title: "Testing Overview"
+description: "Overview of testing utilities in the zzz ecosystem for HTTP, WebSocket, and database testing."
+---
+
+import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
+
+zzz ships a dedicated testing module that lets you exercise your application without starting a real server or opening network connections. The testing utilities cover three areas:
+
+- **HTTP test client** -- send requests through your router and assert on responses, headers, cookies, and JSON bodies.
+- **WebSocket test channel** -- join topics, push events, and inspect messages without a TCP connection.
+- **Database sandbox** -- wrap each test in a transaction that rolls back automatically, plus factories for creating test records.
+
+All testing utilities live under `zzz.testing` and are designed to work with Zig's built-in `test` blocks and `std.testing`.
+
+## What the testing module provides
+
+| Utility | Import | Purpose |
+|---|---|---|
+| `TestClient` | `zzz.testing.TestClient` | HTTP request/response testing against your router |
+| `TestResponse` | `zzz.testing.TestResponse` | Response wrapper with assertion methods |
+| `RequestBuilder` | `zzz.testing.RequestBuilder` | Chainable builder for complex requests |
+| `CookieJar` | `zzz.testing.CookieJar` | Automatic cookie persistence across requests |
+| `MultipartPart` | `zzz.testing.MultipartPart` | Multipart/form-data body construction |
+| `TestChannel` | `zzz.testing.TestChannel` | WebSocket channel testing |
+| `TestSandbox` | `zzz_db.testing.TestSandbox` | Transaction-based database isolation |
+| `Factory` | `zzz_db.testing.Factory` | Test record creation with defaults and overrides |
+
+## Setting up tests
+
+zzz tests run with `zig build test`. No external test runner or server process is needed -- the test client calls your router's handler function directly.
+
+<Steps>
+
+1. **Define your router** as you would in your application:
+
+   ```zig
+   const zzz = @import("zzz");
+   const Router = zzz.Router;
+   const Context = zzz.Context;
+
+   const App = Router.define(.{
+       .routes = &.{
+           Router.get("/", struct {
+               fn handle(ctx: *Context) !void {
+                   ctx.text(.ok, "hello");
+               }
+           }.handle),
+       },
+   });
+   ```
+
+2. **Create a test client** parameterized on your `App` type:
+
+   ```zig
+   const std = @import("std");
+
+   test "homepage returns hello" {
+       var client = zzz.testing.TestClient(App).init(std.testing.allocator);
+       defer client.deinit();
+
+       const resp = try client.get("/");
+       try resp.expectOk();
+       try resp.expectBody("hello");
+   }
+   ```
+
+3. **Run the tests** with `zig build test` or directly with `zig test src/your_file.zig`.
+
+</Steps>
+
+## How it works
+
+The `TestClient` is generic over the App type returned by `Router.define()`. When you call `client.get("/")`, the client:
+
+1. Constructs an HTTP `Request` struct with the method, path, headers, and body you specified.
+2. Merges in default headers and cookies from the built-in `CookieJar`.
+3. Calls `App.handler(allocator, &request)` directly -- no TCP, no event loop.
+4. Wraps the resulting `Response` in a `TestResponse` that provides assertion helpers.
+5. Automatically follows redirects (configurable) and captures `Set-Cookie` headers.
+
+This means your tests run at full speed with no I/O overhead, while exercising the same middleware pipeline and routing logic your application uses in production.
+
+## A complete example
+
+```zig
+const std = @import("std");
+const zzz = @import("zzz");
+const Router = zzz.Router;
+const Context = zzz.Context;
+
+const App = Router.define(.{
+    .routes = &.{
+        Router.get("/", struct {
+            fn handle(ctx: *Context) !void {
+                ctx.text(.ok, "welcome");
+            }
+        }.handle),
+        Router.post("/api/login", struct {
+            fn handle(ctx: *Context) !void {
+                ctx.setCookie("session", "tok_abc", .{});
+                ctx.json(.ok, "{\"ok\":true}");
+            }
+        }.handle),
+        Router.get("/dashboard", struct {
+            fn handle(ctx: *Context) !void {
+                const session = ctx.getCookie("session") orelse {
+                    ctx.text(.unauthorized, "not logged in");
+                    return;
+                };
+                _ = session;
+                ctx.text(.ok, "dashboard");
+            }
+        }.handle),
+    },
+});
+
+test "full login flow" {
+    var client = zzz.testing.TestClient(App).init(std.testing.allocator);
+    defer client.deinit();
+
+    // Verify homepage
+    const home = try client.get("/");
+    try home.expectOk();
+    try home.expectBody("welcome");
+
+    // Log in -- cookie is captured automatically
+    const login = try client.postJson("/api/login", "{}");
+    try login.expectOk();
+    try login.expectCookieValue("session", "tok_abc");
+
+    // Access protected route -- cookie is sent automatically
+    const dash = try client.get("/dashboard");
+    try dash.expectOk();
+    try dash.expectBody("dashboard");
+}
+```
+
+## Next steps
+
+- [HTTP Test Client](/testing/http-test-client/) -- full API reference for `TestClient`, `RequestBuilder`, and `TestResponse` assertions.
+- [WebSocket Testing](/testing/websocket-testing/) -- testing channels with `TestChannel`.
+- [Database Sandbox](/testing/database-sandbox/) -- transaction-based test isolation, factories, and seeding.

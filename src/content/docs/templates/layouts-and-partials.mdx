@@ -1,0 +1,314 @@
+---
+title: "Layouts & Partials"
+description: "Define reusable page layouts with yield blocks and compose templates with partial includes in the zzz template engine."
+---
+
+import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
+
+Layouts define the shared structure of your pages (head, navigation, footer), while partials are reusable fragments you can include anywhere. Both are resolved at compile time -- layouts use `{{{yield}}}` placeholders, and partials use `{{> name}}` inclusion tags.
+
+## Layouts
+
+A layout is a regular template that contains one or more `{{{yield}}}` placeholders. When you render a content template inside a layout, the rendered content replaces the `{{{yield}}}` tag.
+
+### Defining a layout
+
+Create a layout template with `{{{yield}}}` where page content should appear:
+
+```html
+<!-- src/templates/layout.html.zzz -->
+<!DOCTYPE html>
+<html>
+<head>
+  <title>{{title}} - My App</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  {{{yield_head}}}
+</head>
+<body>
+  {{> nav}}
+  <main>{{{yield}}}</main>
+  <footer><p>Powered by Zzz</p></footer>
+  {{{yield_scripts}}}
+</body>
+</html>
+```
+
+### Compiling a layout
+
+Compile the layout with its partials using `templateWithPartials`:
+
+```zig
+const zzz = @import("zzz");
+
+pub const AppLayout = zzz.templateWithPartials(
+    @embedFile("../templates/layout.html.zzz"),
+    .{
+        .nav = @embedFile("../templates/partials/nav.html.zzz"),
+    },
+);
+```
+
+### Rendering content inside a layout
+
+Use `ctx.renderWithLayout` to render a content template wrapped in the layout. Both templates receive the same data struct:
+
+```zig
+const AboutContent = zzz.template(@embedFile("../templates/about.html.zzz"));
+
+fn about(ctx: *zzz.Context) !void {
+    try ctx.renderWithLayout(AppLayout, AboutContent, .ok, .{
+        .title = "About",
+    });
+}
+```
+
+This first renders `AboutContent` with the data, then passes the result into `AppLayout` at the `{{{yield}}}` position.
+
+## Named yield blocks
+
+Beyond the default `{{{yield}}}`, layouts can define named yield slots for injecting content into specific positions like `<head>` or a scripts section.
+
+### Defining named yields in a layout
+
+Use `{{{yield_NAME}}}` syntax in your layout. The part after `yield_` becomes the slot name:
+
+```html
+<head>
+  <title>{{title}}</title>
+  {{{yield_head}}}
+</head>
+<body>
+  <main>{{{yield}}}</main>
+  <script src="/static/js/app.js"></script>
+  {{{yield_scripts}}}
+</body>
+```
+
+This layout defines three yield slots:
+
+| Slot | Syntax | Purpose |
+| --- | --- | --- |
+| Default | `{{{yield}}}` | Main page content |
+| `head` | `{{{yield_head}}}` | Extra `<head>` content (stylesheets, meta tags) |
+| `scripts` | `{{{yield_scripts}}}` | Extra scripts at the end of `<body>` |
+
+### Rendering with named yields
+
+Use `ctx.renderWithLayoutAndYields` and pass a struct with fields matching the slot names:
+
+```zig
+fn htmxDemo(ctx: *zzz.Context) !void {
+    try ctx.renderWithLayoutAndYields(AppLayout, HtmxDemoContent, .ok, .{
+        .title = "htmx Demo",
+        .description = "Interactive demos powered by htmx.",
+    }, .{
+        .head = ctx.htmxScriptTag(),
+    });
+}
+```
+
+The second-to-last argument is the data struct (used by both the content template and the layout). The last argument is the named yields struct -- each field is injected into the corresponding `{{{yield_NAME}}}` slot.
+
+If a named yield slot exists in the layout but no matching field is provided in the yields struct, the slot renders as empty.
+
+### Standalone named yields API
+
+When using `zzz_template` outside of a web framework, the template type provides these render methods:
+
+```zig
+const Layout = tmpl.template("<head>{{{yield_head}}}</head><body>{{{yield}}}</body>");
+
+// Render with default yield only
+const result = try Layout.renderWithYield(allocator, data, "<p>content</p>");
+
+// Render with default yield and named yields
+const result2 = try Layout.renderWithYieldAndNamed(
+    allocator,
+    data,
+    "<p>content</p>",                       // default yield
+    .{ .head = "<link rel=\"stylesheet\">" }, // named yields
+);
+
+// Render with all yields in one struct (.content = default yield)
+const result3 = try Layout.renderWithNamedYields(
+    allocator,
+    data,
+    .{
+        .content = "<p>content</p>",
+        .head = "<title>Home</title>",
+    },
+);
+```
+
+## Partials
+
+Partials are reusable template fragments that are inlined at compile time using the `{{> name}}` syntax.
+
+### Defining a partial
+
+Create a partial as a regular template file in your partials directory:
+
+```html
+<!-- src/templates/partials/nav.html.zzz -->
+<nav>
+  <a href="/">Home</a>
+  <a href="/about">About</a>
+</nav>
+```
+
+### Including a partial
+
+Use `{{> name}}` to include the partial, and compile with `templateWithPartials`:
+
+```zig
+const Page = zzz.templateWithPartials(
+    @embedFile("../templates/page.html.zzz"),
+    .{
+        .header = @embedFile("../templates/partials/header.html.zzz"),
+        .footer = @embedFile("../templates/partials/footer.html.zzz"),
+    },
+);
+```
+
+The template:
+
+```html
+{{> header}}
+<main>{{content}}</main>
+{{> footer}}
+```
+
+At compile time, `{{> header}}` and `{{> footer}}` are replaced with the literal source of each partial before parsing. The result is a single, flat template with all partials inlined.
+
+### Partials with arguments
+
+You can pass literal arguments to partials using `key="value"` syntax:
+
+```html
+{{> button type="primary" label="Click Me"}}
+```
+
+The partial template uses `{{key}}` placeholders that get substituted with the argument values:
+
+```html
+<!-- src/templates/partials/button.html.zzz -->
+<button class="btn-{{type}}">{{label}}</button>
+```
+
+**Output:**
+```html
+<button class="btn-primary">Click Me</button>
+```
+
+Argument substitution happens before template parsing, so the substituted values become literal text in the final template. Any `{{key}}` placeholders in the partial that do not match an argument name remain as template variables and are resolved from the data struct at render time.
+
+```zig
+const Page = zzz.templateWithPartials(
+    "{{> greeting name=\"World\"}}",
+    .{ .greeting = "<p>Hello, {{name}}! Today is {{day}}.</p>" },
+);
+
+// {{name}} is replaced by the partial arg "World"
+// {{day}} remains a template variable resolved from data
+const result = try Page.render(allocator, .{ .day = "Monday" });
+// Output: <p>Hello, World! Today is Monday.</p>
+```
+
+### Partials inside loops
+
+Partials work inside `{{#each}}` blocks. The partial has access to the loop element's fields:
+
+```html
+<!-- src/templates/todos.html.zzz -->
+<ul>
+  {{#each items}}{{> todo_item}}{{/each}}
+</ul>
+```
+
+```html
+<!-- src/templates/partials/todo_item.html.zzz -->
+<li id="todo-{{id}}">
+  <span>{{text}}</span>
+  <button hx-delete="/todos/{{id}}">Delete</button>
+</li>
+```
+
+```zig
+const TodosTemplate = zzz.templateWithPartials(
+    @embedFile("../templates/todos.html.zzz"),
+    .{ .todo_item = @embedFile("../templates/partials/todo_item.html.zzz") },
+);
+```
+
+### Nested partials
+
+If a partial itself contains `{{> name}}` tags, those inner partials must also be provided in the partials struct. Since partial inlining happens in a single pass, the parent template must supply all transitive partial dependencies.
+
+```zig
+const Page = zzz.templateWithPartials(
+    @embedFile("../templates/page.html.zzz"),       // contains {{> sidebar}}
+    .{
+        .sidebar = @embedFile("../templates/partials/sidebar.html.zzz"), // may contain {{> user_card}}
+        .user_card = @embedFile("../templates/partials/user_card.html.zzz"),
+    },
+);
+```
+
+## Recommended project structure
+
+```
+src/
+  controllers/
+    home.zig          # Compiles templates and defines handlers
+    htmx.zig
+  templates/
+    layout.html.zzz   # Application layout with {{{yield}}}
+    index.html.zzz    # Page content templates
+    about.html.zzz
+    partials/
+      nav.html.zzz    # Shared navigation
+      footer.html.zzz
+      counter.html.zzz
+```
+
+A typical controller file follows this pattern:
+
+<Steps>
+
+1. **Compile layout and content templates** as module-level constants:
+
+   ```zig
+   const zzz = @import("zzz");
+   const home = @import("home.zig");
+   const AppLayout = home.AppLayout;
+
+   const PageContent = zzz.template(@embedFile("../templates/page.html.zzz"));
+   ```
+
+2. **Define a handler** that renders the content inside the layout:
+
+   ```zig
+   fn page(ctx: *zzz.Context) !void {
+       try ctx.renderWithLayout(AppLayout, PageContent, .ok, .{
+           .title = "My Page",
+       });
+   }
+   ```
+
+3. **Share the layout** across controllers by making it `pub`:
+
+   ```zig
+   // home.zig
+   pub const AppLayout = zzz.templateWithPartials(
+       @embedFile("../templates/layout.html.zzz"),
+       .{ .nav = @embedFile("../templates/partials/nav.html.zzz") },
+   );
+   ```
+
+</Steps>
+
+## Next steps
+
+- [Template Syntax](/templates/syntax/) -- full syntax reference for variables, conditionals, and loops
+- [Pipes and Helpers](/templates/pipes-and-helpers/) -- transform values with pipe filters
+- [htmx Integration](/templates/htmx/) -- partial rendering for htmx fragment responses

@@ -1,0 +1,215 @@
+---
+title: "Middleware"
+description: "Understand the middleware pipeline, the 20 built-in middleware, and how to write your own."
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+Middleware in zzz are plain functions with the signature `fn (*zzz.Context) anyerror!void`. They form a pipeline: each middleware can run code before and after the rest of the chain by calling `ctx.next()`.
+
+## How the pipeline works
+
+Middleware execute in the order they are listed in the `middleware` array. Each one calls `ctx.next()` to pass control to the next middleware (or the final route handler). Code before `ctx.next()` runs on the way in; code after runs on the way out.
+
+```zig
+fn timing(ctx: *zzz.Context) !void {
+    const start = getTimestamp();
+    try ctx.next();           // run everything downstream
+    const elapsed = getTimestamp() - start;
+    std.log.info("took {d}us", .{elapsed});
+}
+```
+
+If a middleware does **not** call `ctx.next()`, the pipeline stops and the response is sent immediately. This is how auth middleware rejects unauthenticated requests.
+
+## Execution order
+
+Given this configuration:
+
+```zig
+const App = zzz.Router.define(.{
+    .middleware = &.{
+        zzz.errorHandler(.{}),  // 1st: wraps everything in error handling
+        zzz.logger,             // 2nd: logs request/response
+        zzz.cors(.{}),          // 3rd: handles CORS headers
+        zzz.bodyParser,         // 4th: parses request body
+    },
+    .routes = &.{
+        zzz.Router.get("/", index),
+    },
+});
+```
+
+A request flows through: errorHandler -> logger -> cors -> bodyParser -> route handler -> bodyParser (after) -> cors (after) -> logger (after) -> errorHandler (after).
+
+Place error handling first so it catches errors from all downstream middleware. Place the logger early so it can measure total response time.
+
+## Built-in middleware
+
+zzz ships with 20 middleware covering the most common web application needs:
+
+| Middleware | Import | Description |
+|-----------|--------|-------------|
+| `errorHandler(config)` | `zzz.errorHandler` | Catches errors from downstream handlers and returns a 500 response. Optionally shows error names in dev mode. |
+| `logger` | `zzz.logger` | Logs method, path, status code, and response time to `std.log`. |
+| `structuredLogger(config)` | `zzz.structuredLogger` | Structured logging with text or JSON format and configurable log levels. |
+| `gzipCompress(config)` | `zzz.gzipCompress` | Compresses response bodies with gzip when the client accepts it and the body exceeds `min_size`. |
+| `cors(config)` | `zzz.cors` | Adds CORS headers and handles preflight OPTIONS requests. |
+| `bodyParser` | `zzz.bodyParser` | Parses request bodies (JSON, URL-encoded, multipart, text, binary) into `ctx.parsed_body`. |
+| `staticFiles(config)` | `zzz.staticFiles` | Serves static files from a directory with MIME detection, caching, and ETag support. |
+| `session(config)` | `zzz.session` | Cookie-based sessions with an in-memory store. Persists assigns across requests. |
+| `csrf(config)` | `zzz.csrf` | CSRF protection. Generates tokens for safe methods, validates on unsafe methods. |
+| `bearerAuth(config)` | `zzz.bearerAuth` | Extracts Bearer tokens from the Authorization header into assigns. |
+| `basicAuth(config)` | `zzz.basicAuth` | Extracts Basic auth credentials (username/password) into assigns. |
+| `jwtAuth(config)` | `zzz.jwtAuth` | Verifies HMAC-SHA256 JWTs and stores the decoded payload in assigns. |
+| `rateLimit(config)` | `zzz.rateLimit` | Token-bucket rate limiting per client (identified by header). |
+| `requestId(config)` | `zzz.requestId` | Propagates or generates a unique request ID, stored in assigns and the response header. |
+| `health(config)` | `zzz.health` | Returns `{"status":"ok"}` at a configurable path (default `/health`). |
+| `metrics(config)` | `zzz.metrics` | Collects request counts, status codes, latency and serves Prometheus metrics. |
+| `telemetry(config)` | `zzz.telemetry` | Fires lifecycle events (request start/end) to a callback for custom observability. |
+| `htmx(config)` | `zzz.htmx` | Sets htmx-related assigns (`is_htmx`, `htmx_target`) and provides a CDN script tag. |
+| `zzzJs(config)` | `zzz.zzzJs` | Serves the embedded zzz.js client library at a configurable path. |
+| `swagger.ui(config)` | `zzz.swagger.ui` | Serves Swagger UI for your OpenAPI spec. |
+
+## Using built-in middleware
+
+Most middleware accept a comptime config struct with sensible defaults. Pass `.{}` for defaults or override specific fields:
+
+```zig
+const App = zzz.Router.define(.{
+    .middleware = &.{
+        zzz.errorHandler(.{ .show_details = true }),
+        zzz.logger,
+        zzz.gzipCompress(.{ .min_size = 256 }),
+        zzz.requestId(.{}),
+        zzz.cors(.{ .allow_origins = &.{"https://myapp.com"} }),
+        zzz.bodyParser,
+        zzz.session(.{ .cookie_name = "my_app_session", .max_age = 86400 }),
+        zzz.csrf(.{}),
+        zzz.staticFiles(.{ .dir = "public", .prefix = "/static" }),
+    },
+    .routes = &.{ ... },
+});
+```
+
+Note that `bodyParser` and `logger` are bare function references (no config struct), while most others use the `middleware(config)` pattern.
+
+## Scoped middleware
+
+Apply middleware to a subset of routes using `Router.scope`:
+
+```zig
+.routes = zzz.Router.scope("/api", &.{
+    zzz.bearerAuth(.{ .required = true }),
+    zzz.rateLimit(.{ .max_requests = 100, .window_seconds = 60 }),
+}, &.{
+    zzz.Router.get("/users", listUsers),
+    zzz.Router.post("/users", createUser),
+}),
+```
+
+Scoped middleware runs after global middleware and only for routes within that scope.
+
+## Writing custom middleware
+
+A middleware is any function matching the `HandlerFn` type:
+
+```zig
+pub const HandlerFn = *const fn (*zzz.Context) anyerror!void;
+```
+
+<Steps>
+1. **Write the function**
+
+   ```zig
+   fn requestTimer(ctx: *zzz.Context) !void {
+       ctx.assign("request_start", "now");
+       try ctx.next();
+       // Response is ready -- do post-processing here
+   }
+   ```
+
+2. **Add it to the pipeline**
+
+   ```zig
+   .middleware = &.{
+       zzz.errorHandler(.{}),
+       requestTimer,
+       zzz.logger,
+   },
+   ```
+</Steps>
+
+### Passing data between middleware
+
+Use `ctx.assign()` and `ctx.getAssign()` to store and retrieve string key-value pairs. The assigns store is a fixed-size (max 16 entries), zero-allocation structure:
+
+```zig
+fn authMiddleware(ctx: *zzz.Context) !void {
+    if (ctx.request.header("Authorization")) |token| {
+        _ = token;
+        ctx.assign("user_id", "42");
+        ctx.assign("role", "admin");
+    }
+    try ctx.next();
+}
+
+fn dashboard(ctx: *zzz.Context) !void {
+    const role = ctx.getAssign("role") orelse "guest";
+    ctx.text(.ok, role);
+}
+```
+
+### Short-circuiting
+
+To stop the pipeline and respond immediately, set the response and return without calling `ctx.next()`:
+
+```zig
+fn requireAdmin(ctx: *zzz.Context) !void {
+    const role = ctx.getAssign("role") orelse "guest";
+    if (!std.mem.eql(u8, role, "admin")) {
+        ctx.text(.forbidden, "403 Forbidden");
+        return; // do not call ctx.next()
+    }
+    try ctx.next();
+}
+```
+
+### Configurable middleware
+
+Use the same pattern as the built-in middleware: a comptime function that captures config and returns a `HandlerFn`:
+
+```zig
+pub const ApiKeyConfig = struct {
+    header_name: []const u8 = "X-API-Key",
+    required: bool = true,
+};
+
+pub fn apiKey(comptime config: ApiKeyConfig) zzz.HandlerFn {
+    const S = struct {
+        fn handle(ctx: *zzz.Context) anyerror!void {
+            if (ctx.request.header(config.header_name)) |key| {
+                ctx.assign("api_key", key);
+            } else if (config.required) {
+                ctx.text(.unauthorized, "401 Unauthorized");
+                return;
+            }
+            try ctx.next();
+        }
+    };
+    return &S.handle;
+}
+```
+
+Then use it like any built-in:
+
+```zig
+.middleware = &.{ apiKey(.{ .header_name = "X-My-Key" }) },
+```
+
+## Next steps
+
+- [Context](/core/context/) -- the full API for request/response handling
+- [Error Handling](/core/error-handling/) -- how the error handler middleware works
+- [Static Files](/core/static-files/) -- serving assets from disk
+- [Authentication](/authentication/overview/) -- bearer, basic, JWT, sessions, and CSRF

@@ -1,0 +1,279 @@
+---
+title: "Channels"
+description: "Phoenix-style channels with topic-based pub/sub, event routing, join/leave lifecycle, and broadcasting in zzz."
+---
+
+import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
+
+Channels provide a higher-level abstraction over raw WebSockets. Instead of working with frames directly, you define **topics** and **events**. Clients join topics, push events, and receive broadcasts -- all over a single WebSocket connection. The design is inspired by Phoenix Channels and uses a compatible JSON wire protocol.
+
+## Architecture
+
+A channel system has four layers:
+
+1. **Socket** -- a per-connection wrapper around a `WebSocket`, tracking which topics the client has joined (up to 16 topics per connection)
+2. **Channel definition** -- a `ChannelDef` that maps a topic pattern to join/leave/event handlers
+3. **PubSub** -- a thread-safe topic registry that tracks which WebSocket connections are subscribed to which topics (up to 64 topics, 256 subscribers each)
+4. **Channel middleware** -- wires everything together, handling the JSON wire protocol, join/leave lifecycle, heartbeats, and event routing
+
+## Setting up channels
+
+<Steps>
+
+1. **Define a channel.** Create a `ChannelDef` with a topic pattern, join handler, and event handlers.
+
+   ```zig
+   const zzz = @import("zzz");
+
+   fn roomJoin(_: *zzz.Socket, _: []const u8, _: []const u8) zzz.JoinResult {
+       // Return .ok to allow, .@"error" to reject
+       return .ok;
+   }
+
+   fn roomLeave(_: *zzz.Socket, _: []const u8) void {
+       // Cleanup when a client leaves the topic
+   }
+
+   fn handleNewMsg(socket: *zzz.Socket, topic: []const u8, _: []const u8, payload: []const u8) void {
+       // Broadcast the message to all subscribers of this topic
+       socket.broadcast(topic, "new_msg", payload);
+   }
+
+   const room_channel: zzz.ChannelDef = .{
+       .topic_pattern = "room:*",
+       .join = &roomJoin,
+       .leave = &roomLeave,
+       .handlers = &.{
+           .{ .event = "new_msg", .handler = &handleNewMsg },
+       },
+   };
+   ```
+
+2. **Register the channel route.** Use `Router.channel` to create a WebSocket endpoint that speaks the channel protocol.
+
+   ```zig
+   pub const ctrl = zzz.Controller.define(.{}, &.{
+       zzz.Router.channel("/socket", .{
+           .channels = &.{room_channel},
+       }),
+   });
+   ```
+
+3. **Connect from the client.** Use the [zzz.js client](/websockets/zzz-js-client/) to connect and join the topic.
+
+</Steps>
+
+## Topic patterns
+
+Topic patterns determine which topics a channel definition handles. There are two forms:
+
+| Pattern | Matches |
+|---|---|
+| `"room:*"` | Any topic starting with `room:`, such as `room:lobby`, `room:123`, `room:` |
+| `"notifications"` | Only the exact string `notifications` |
+
+Wildcard patterns use the `prefix:*` syntax. The `*` matches any suffix after the colon.
+
+## The `ChannelDef` struct
+
+```zig
+pub const ChannelDef = struct {
+    topic_pattern: []const u8,
+    join: *const fn (*Socket, []const u8, []const u8) JoinResult,
+    leave: ?*const fn (*Socket, []const u8) void = null,
+    handlers: []const EventHandler = &.{},
+};
+```
+
+| Field | Description |
+|---|---|
+| `topic_pattern` | Topic pattern to match (e.g., `"room:*"` or `"notifications"`) |
+| `join` | Called when a client requests to join. Receives the socket, topic, and join payload (JSON string). Return `.ok` to allow or `.@"error"` to reject. Defaults to always allowing. |
+| `leave` | Called when a client leaves or disconnects. Receives the socket and topic. Optional. |
+| `handlers` | Array of `EventHandler` structs mapping event names to handler functions. |
+
+## The `EventHandler` struct
+
+```zig
+pub const EventHandler = struct {
+    event: []const u8,
+    handler: *const fn (*Socket, []const u8, []const u8, []const u8) void,
+};
+```
+
+The handler function receives four arguments: `(socket, topic, event, payload_json)`.
+
+## The `Socket` type
+
+`Socket` is the per-connection handle passed to all channel callbacks. It wraps a `*WebSocket` and provides channel-specific operations.
+
+### Messaging methods
+
+| Method | Description |
+|---|---|
+| `socket.push(topic, event, payload_json)` | Send a message to this socket only |
+| `socket.reply(topic, ref, status, payload_json)` | Reply to a client request (resolves the client-side Promise) |
+| `socket.broadcast(topic, event, payload_json)` | Send to all subscribers of the topic, including the sender |
+| `socket.broadcastFrom(topic, event, payload_json)` | Send to all subscribers except the sender |
+| `socket.pushTo(topic, event, target_ws, payload_json)` | Send to a specific subscriber |
+
+### Accessing request data
+
+| Method | Description |
+|---|---|
+| `socket.param(name)` | Get a route parameter (from the WebSocket URL pattern) |
+| `socket.getAssign(key)` | Get an assign value set by earlier middleware |
+
+### Topic membership
+
+| Method | Description |
+|---|---|
+| `socket.isJoined(topic)` | Check if this socket is currently in a topic |
+
+## Join authorization
+
+The join callback is the right place to authorize access to a topic. You can inspect assigns set by authentication middleware, check the payload, or validate the topic name:
+
+```zig
+fn roomJoin(socket: *zzz.Socket, topic: []const u8, payload: []const u8) zzz.JoinResult {
+    // Check if user is authenticated
+    const user = socket.getAssign("user_id") orelse return .@"error";
+
+    // Allow joining
+    return .ok;
+}
+```
+
+When you return `.@"error"`, the client receives an error reply with `{"reason":"join rejected"}`, and the client-side join Promise rejects.
+
+## Broadcasting
+
+There are three ways to send messages to topic subscribers:
+
+<Tabs>
+<TabItem label="Broadcast to all">
+```zig
+fn handleNewMsg(socket: *zzz.Socket, topic: []const u8, _: []const u8, payload: []const u8) void {
+    // Everyone in the topic sees this, including the sender
+    socket.broadcast(topic, "new_msg", payload);
+}
+```
+</TabItem>
+<TabItem label="Broadcast excluding sender">
+```zig
+fn handleTyping(socket: *zzz.Socket, topic: []const u8, _: []const u8, payload: []const u8) void {
+    // Everyone except the sender sees this
+    socket.broadcastFrom(topic, "user_typing", payload);
+}
+```
+</TabItem>
+<TabItem label="Direct message">
+```zig
+fn handleWhisper(socket: *zzz.Socket, topic: []const u8, _: []const u8, payload: []const u8) void {
+    // Send to a specific WebSocket (must be subscribed to the topic)
+    // target_ws would come from your own lookup logic
+    socket.pushTo(topic, "whisper", target_ws, payload);
+}
+```
+</TabItem>
+</Tabs>
+
+## PubSub
+
+The `PubSub` module is the underlying registry that tracks topic subscriptions. The channel middleware manages subscriptions automatically during join/leave, but you can also use PubSub directly for advanced scenarios:
+
+```zig
+const PubSub = zzz.PubSub;
+
+// Subscribe a WebSocket to a topic
+_ = PubSub.subscribe("alerts", ws);
+
+// Broadcast raw text to all subscribers
+PubSub.broadcast("alerts", "{\"event\":\"alert\",\"data\":\"fire!\"}");
+
+// Broadcast to all except a specific WebSocket
+PubSub.broadcastFrom("alerts", message, sender_ws);
+
+// Get subscriber count
+const count = PubSub.subscriberCount("alerts");
+
+// Unsubscribe
+PubSub.unsubscribe("alerts", ws);
+
+// Unsubscribe from all topics (typically on disconnect)
+PubSub.unsubscribeAll(ws);
+```
+
+## Wire protocol
+
+The channel system uses a JSON wire protocol. Every message is a JSON object with four fields:
+
+```json
+{
+  "topic": "room:lobby",
+  "event": "new_msg",
+  "payload": {"body": "hello"},
+  "ref": "1"
+}
+```
+
+| Field | Description |
+|---|---|
+| `topic` | The channel topic (e.g., `"room:lobby"`) |
+| `event` | The event name (e.g., `"new_msg"`, `"phx_join"`, `"phx_leave"`, `"heartbeat"`) |
+| `payload` | A JSON object with event-specific data |
+| `ref` | A unique string reference for request/reply correlation; `null` for server-initiated pushes |
+
+### Built-in events
+
+| Event | Direction | Description |
+|---|---|---|
+| `phx_join` | Client to server | Join a topic |
+| `phx_leave` | Client to server | Leave a topic |
+| `heartbeat` | Client to server | Keep the connection alive |
+| `phx_reply` | Server to client | Reply to a join, leave, or custom event |
+
+## The `ChannelConfig` struct
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `channels` | `[]const ChannelDef` | (required) | Array of channel definitions to register |
+| `heartbeat_timeout_s` | `u32` | `60` | Seconds before a connection without heartbeats is considered dead |
+
+## Full example: chat room
+
+```zig
+const std = @import("std");
+const zzz = @import("zzz");
+
+fn roomJoin(_: *zzz.Socket, _: []const u8, _: []const u8) zzz.JoinResult {
+    return .ok;
+}
+
+fn roomLeave(_: *zzz.Socket, _: []const u8) void {}
+
+fn handleNewMsg(socket: *zzz.Socket, topic: []const u8, _: []const u8, payload: []const u8) void {
+    socket.broadcast(topic, "new_msg", payload);
+}
+
+const room_channel: zzz.ChannelDef = .{
+    .topic_pattern = "room:*",
+    .join = &roomJoin,
+    .leave = &roomLeave,
+    .handlers = &.{
+        .{ .event = "new_msg", .handler = &handleNewMsg },
+    },
+};
+
+pub const ctrl = zzz.Controller.define(.{}, &.{
+    zzz.Router.channel("/socket", .{
+        .channels = &.{room_channel},
+    }),
+});
+```
+
+## Next steps
+
+- [Presence](/websockets/presence/) -- track which users are connected to each channel
+- [zzz.js Client](/websockets/zzz-js-client/) -- connect to channels from the browser
+- [WebSockets Overview](/websockets/overview/) -- lower-level WebSocket API without the channel abstraction

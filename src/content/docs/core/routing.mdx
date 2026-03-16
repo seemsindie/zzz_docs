@@ -1,0 +1,202 @@
+---
+title: "Routing"
+description: "Define routes with compile-time resolution, path params, wildcards, and scoping."
+---
+
+import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
+
+zzz resolves all routes at compile time. Patterns are parsed into segments, matched against incoming requests with zero allocations, and any misconfigurations produce clear compile errors rather than runtime surprises.
+
+## Defining routes
+
+Use `Router.define` to create your application. It accepts a config struct with global `middleware` and a `routes` slice:
+
+```zig
+const App = zzz.Router.define(.{
+    .middleware = &.{zzz.logger},
+    .routes = &.{
+        zzz.Router.get("/", index),
+        zzz.Router.post("/users", createUser),
+    },
+});
+```
+
+The returned type has a `handler` function that you pass to `Server.init`.
+
+## HTTP method helpers
+
+The `Router` namespace provides a helper for each standard HTTP method:
+
+| Helper | HTTP method |
+|--------|-------------|
+| `Router.get(pattern, handler)` | GET |
+| `Router.post(pattern, handler)` | POST |
+| `Router.put(pattern, handler)` | PUT |
+| `Router.patch(pattern, handler)` | PATCH |
+| `Router.delete(pattern, handler)` | DELETE |
+| `Router.head(pattern, handler)` | HEAD |
+| `Router.options(pattern, handler)` | OPTIONS |
+
+For less common methods, use `Router.route`:
+
+```zig
+zzz.Router.route(.CONNECT, "/tunnel", tunnelHandler),
+```
+
+Every helper returns a `RouteDef` struct that you can chain with `.named()` or `.doc()`.
+
+## Path parameters
+
+Prefix a segment with `:` to capture it as a named parameter. Up to 8 path parameters are supported per route (zero-allocation fixed-size store).
+
+```zig
+zzz.Router.get("/users/:id", getUser),
+zzz.Router.get("/posts/:slug/comments/:comment_id", getComment),
+```
+
+Inside your handler, retrieve the value with `ctx.param()` or `ctx.pathParam()`:
+
+```zig
+fn getUser(ctx: *zzz.Context) !void {
+    const id = ctx.param("id") orelse {
+        ctx.text(.bad_request, "missing id");
+        return;
+    };
+    // id is a []const u8 slice into the request path
+    ctx.json(.ok, id);
+}
+```
+
+## Wildcards
+
+Prefix a segment with `*` to capture the entire remainder of the path. Wildcards must be the last segment.
+
+```zig
+zzz.Router.get("/files/*path", serveFile),
+```
+
+A request to `/files/docs/guide.pdf` sets the `path` parameter to `docs/guide.pdf`.
+
+## Query parameters
+
+Query strings are automatically parsed and accessible via `ctx.query.get()` or the unified `ctx.param()` lookup (which checks path params first, then body fields, then query params):
+
+```zig
+fn listUsers(ctx: *zzz.Context) !void {
+    const page = ctx.param("page") orelse "1";
+    const per_page = ctx.query.get("per_page") orelse "20";
+    _ = page;
+    _ = per_page;
+    ctx.json(.ok, "[]");
+}
+```
+
+## RESTful resources
+
+`Router.resource` generates standard CRUD routes from a single declaration:
+
+```zig
+const routes = zzz.Router.resource("/posts", .{
+    .index = listPosts,        // GET    /posts
+    .show = showPost,          // GET    /posts/:id
+    .create = createPost,      // POST   /posts
+    .update = updatePost,      // PUT    /posts/:id
+    .delete_handler = deletePost, // DELETE /posts/:id
+    .new = newPostForm,        // GET    /posts/new
+    .edit = editPostForm,      // GET    /posts/:id/edit
+});
+```
+
+All handlers are optional. Only the ones you provide generate routes. You can also attach shared middleware to all resource routes:
+
+```zig
+zzz.Router.resource("/admin/posts", .{
+    .index = listPosts,
+    .create = createPost,
+    .middleware = &.{zzz.bearerAuth(.{ .required = true })},
+}),
+```
+
+Since `Router.resource` returns a `[]const RouteDef`, you concatenate it with other routes using `++`:
+
+```zig
+.routes = zzz.Router.resource("/posts", .{ .index = listPosts })
+    ++ &.{ zzz.Router.get("/", index) },
+```
+
+## Scoped routes
+
+`Router.scope` groups routes under a shared prefix and middleware:
+
+```zig
+zzz.Router.scope("/api", &.{
+    zzz.bearerAuth(.{ .required = true }),
+}, &.{
+    zzz.Router.get("/me", currentUser),
+    zzz.Router.get("/posts", listPosts),
+}),
+```
+
+This produces `GET /api/me` and `GET /api/posts`, both protected by bearer auth. Scopes return `[]const RouteDef` so you can concatenate them with `++` just like resources.
+
+Scopes can be nested by concatenating multiple scope calls:
+
+```zig
+.routes = zzz.Router.scope("/api/v1", &.{zzz.rateLimit(.{})}, &.{
+    zzz.Router.get("/status", apiStatus),
+}) ++ zzz.Router.scope("/api/v2", &.{}, &.{
+    zzz.Router.get("/status", apiStatusV2),
+}),
+```
+
+## Named routes
+
+Give a route a name with `.named()` for reverse URL generation:
+
+```zig
+zzz.Router.get("/users/:id", getUser).named("user_path"),
+```
+
+Then look up the pattern at compile time or build a URL with parameter substitution:
+
+```zig
+// Compile-time pattern lookup
+const pattern = App.pathFor("user_path"); // "/users/:id"
+
+// Runtime URL building
+var buf: [128]u8 = undefined;
+const url = App.buildPath("user_path", &buf, .{ .id = "42" });
+// url == "/users/42"
+```
+
+## Controllers
+
+The `Controller` type groups related routes under a shared prefix, Swagger tag, and middleware. See [Controllers](/core/controllers/) for details.
+
+```zig
+pub const ctrl = zzz.Controller.define(.{
+    .prefix = "/api",
+    .tag = "API",
+}, &.{
+    zzz.Router.get("/status", apiStatus),
+    zzz.Router.get("/users/:id", getUser),
+});
+```
+
+Controllers produce a `routes` field that you concatenate into your main route list.
+
+## Compile-time route resolution
+
+All route patterns are parsed into segments at `comptime`. The router uses `inline for` over the route table to match incoming requests, which means:
+
+- Invalid patterns produce compile errors, not runtime crashes
+- No heap allocation for route matching
+- The Zig compiler can optimize the dispatch into efficient branching
+- Path parameters are extracted into a fixed-size `Params` struct (max 8 entries)
+
+## Next steps
+
+- [Middleware](/core/middleware/) -- learn about the request pipeline
+- [Context](/core/context/) -- access request data and build responses
+- [Controllers](/core/controllers/) -- organize handlers into modules
+- [Swagger / OpenAPI](/api/swagger-openapi/) -- annotate routes with `.doc()` for spec generation

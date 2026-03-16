@@ -1,0 +1,169 @@
+---
+title: "Error Handling"
+description: "Catch errors globally with the error handler middleware, with development and production modes."
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+The error handler middleware catches any Zig error returned by downstream middleware or route handlers and converts it into a `500 Internal Server Error` response. Without it, an unhandled error would propagate up and crash the server.
+
+## Basic setup
+
+Place `errorHandler` as the **first** middleware in your pipeline so it wraps everything downstream:
+
+```zig
+const App = zzz.Router.define(.{
+    .middleware = &.{
+        zzz.errorHandler(.{}),   // catches all errors below
+        zzz.logger,
+        zzz.bodyParser,
+    },
+    .routes = &.{
+        zzz.Router.get("/", index),
+    },
+});
+```
+
+## Configuration
+
+The `ErrorHandlerConfig` struct has one option:
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `show_details` | `bool` | `false` | When `true`, the error name is included in the response body. When `false`, a generic message is returned. |
+
+## Development vs production
+
+<Tabs>
+<TabItem label="Development">
+
+In development, enable `show_details` to see which error was thrown:
+
+```zig
+zzz.errorHandler(.{ .show_details = true }),
+```
+
+If a handler returns `error.DatabaseTimeout`, the response body will be:
+
+```
+DatabaseTimeout
+```
+
+with status `500 Internal Server Error` and `Content-Type: text/plain; charset=utf-8`.
+
+</TabItem>
+<TabItem label="Production">
+
+In production, use the default configuration to hide internal error names:
+
+```zig
+zzz.errorHandler(.{}),
+```
+
+The response body will always be:
+
+```
+500 Internal Server Error
+```
+
+regardless of what error was thrown.
+
+</TabItem>
+</Tabs>
+
+## How errors propagate
+
+When a handler or middleware returns an error, the chain unwinds back through each middleware's `ctx.next()` call. The error handler catches the error at the top of the chain:
+
+```zig
+fn errorHandler(ctx: *zzz.Context) !void {
+    ctx.next() catch |err| {
+        ctx.response.status = .internal_server_error;
+        ctx.response.body = if (show_details) @errorName(err) else "500 Internal Server Error";
+        return; // error is swallowed -- response is sent
+    };
+}
+```
+
+Middleware that runs **before** the error handler (i.e., listed before it in the array) will not have their errors caught. This is why the error handler should be first.
+
+## Example: triggering an error
+
+Any handler can return a Zig error to trigger the error handler:
+
+```zig
+fn riskyHandler(ctx: *zzz.Context) !void {
+    _ = ctx;
+    return error.SomethingWentWrong;
+}
+```
+
+With `show_details = true`, the client sees `SomethingWentWrong` in the response body. With `show_details = false`, the client sees `500 Internal Server Error`.
+
+## Successful requests pass through
+
+When no error occurs, the error handler is invisible. The response from the downstream handler is returned unchanged:
+
+```zig
+fn healthCheck(ctx: *zzz.Context) !void {
+    ctx.json(.ok, "{\"status\": \"ok\"}");
+}
+```
+
+This returns `200 OK` with the JSON body, exactly as written.
+
+## Combining with the logger
+
+The logger middleware measures response time and logs the result. When combined with the error handler, it logs the 500 status for failed requests:
+
+```zig
+.middleware = &.{
+    zzz.errorHandler(.{ .show_details = true }),
+    zzz.logger,    // sees the 500 set by errorHandler
+    zzz.bodyParser,
+},
+```
+
+The logger runs after `ctx.next()` returns (since errorHandler swallows the error), so it logs:
+
+```
+GET /risky -> 500 (12us)
+```
+
+## Custom error handling
+
+If you need more control than the built-in error handler provides (for example, returning JSON errors or rendering HTML error pages), write your own middleware:
+
+```zig
+fn customErrorHandler(ctx: *zzz.Context) !void {
+    ctx.next() catch |err| {
+        const is_api = std.mem.startsWith(u8, ctx.request.path, "/api");
+        if (is_api) {
+            ctx.json(.internal_server_error, "{\"error\": \"internal_server_error\"}");
+        } else {
+            ctx.html(.internal_server_error,
+                \\<html><body><h1>Something went wrong</h1></body></html>
+            );
+        }
+
+        std.log.err("Unhandled error: {s} on {s}", .{@errorName(err), ctx.request.path});
+        return;
+    };
+}
+```
+
+Then use it in place of the built-in:
+
+```zig
+.middleware = &.{
+    customErrorHandler,
+    zzz.logger,
+    zzz.bodyParser,
+},
+```
+
+## Next steps
+
+- [Middleware](/core/middleware/) -- the full middleware pipeline
+- [Context](/core/context/) -- setting response status and body
+- [Routing](/core/routing/) -- define your route handlers

@@ -1,0 +1,260 @@
+---
+title: Code Generators
+description: Use zzz gen to generate controllers, models, channels, and mailers from the command line.
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+The `zzz gen` command (short for `zzz generate`) creates boilerplate code from built-in templates. It supports four generator types: controllers, models, channels, and mailers.
+
+## Usage
+
+```bash
+zzz gen <type> <Name> [options...]
+```
+
+The `<Name>` argument is case-sensitive. By convention, pass it in PascalCase (e.g., `Users`, `BlogPost`). The CLI converts it to lowercase for file names.
+
+## Generator types
+
+### Controller
+
+```bash
+zzz gen controller <Name>
+```
+
+Generates a RESTful controller at `src/controllers/<name>.zig` with five actions: `index`, `show`, `create`, `update`, and `delete_handler`. The file also exports a `routes` constant that maps these actions to standard REST paths using `Router.resource`.
+
+**Example:**
+
+```bash
+zzz gen controller Users
+# Generated: src/controllers/users.zig
+```
+
+**Generated code:**
+
+```zig
+const std = @import("std");
+const zzz = @import("zzz");
+const Context = zzz.Context;
+const Router = zzz.Router;
+
+// Users Controller
+
+pub fn index(ctx: *Context) !void {
+    ctx.json(.ok, "{\"message\":\"users index\"}");
+}
+
+pub fn show(ctx: *Context) !void {
+    const id = ctx.param("id") orelse "unknown";
+    _ = id;
+    ctx.json(.ok, "{\"message\":\"Users show\"}");
+}
+
+pub fn create(ctx: *Context) !void {
+    ctx.json(.created, "{\"message\":\"Users created\"}");
+}
+
+pub fn update(ctx: *Context) !void {
+    ctx.json(.ok, "{\"message\":\"Users updated\"}");
+}
+
+pub fn delete_handler(ctx: *Context) !void {
+    ctx.json(.ok, "{\"message\":\"Users deleted\"}");
+}
+
+pub const routes = Router.resource("/users", .{
+    .index = index,
+    .show = show,
+    .create = create,
+    .update = update,
+    .delete_handler = delete_handler,
+});
+```
+
+To wire the controller into your app, import it in `src/main.zig` and add its routes:
+
+```zig
+const users = @import("controllers/users.zig");
+
+const App = Router.define(.{
+    .routes = &.{
+        users.routes,
+    },
+});
+```
+
+### Model
+
+```bash
+zzz gen model <Name> [field:type ...]
+```
+
+Generates two files:
+
+1. **Schema** at `src/<name>.zig` -- a Zig struct with typed fields and a `Meta` constant for the database layer.
+2. **Migration** at `priv/migrations/001_create_<name>.zig` -- `up` and `down` functions for creating and dropping the table.
+
+Every model automatically includes `id`, `inserted_at`, and `updated_at` fields.
+
+**Supported field types:**
+
+| CLI type | Zig type | SQL column type |
+|----------|----------|-----------------|
+| `string` | `[]const u8` | `text` |
+| `text` | `[]const u8` | `text` |
+| `integer` or `int` | `i64` | `bigint` |
+| `float` or `real` | `f64` | `real` |
+| `boolean` or `bool` | `bool` | `boolean` |
+
+**Example:**
+
+```bash
+zzz gen model Post title:string body:text user_id:integer published:boolean
+# Generated: src/post.zig
+# Generated: priv/migrations/001_create_post.zig
+```
+
+**Generated schema (`src/post.zig`):**
+
+```zig
+const schema = @import("zzz_db").Schema;
+
+/// Post schema definition.
+pub const Post = struct {
+    id: i64,
+    title: []const u8,
+    body: []const u8,
+    user_id: i64,
+    published: bool,
+    inserted_at: i64 = 0,
+    updated_at: i64 = 0,
+
+    pub const Meta = schema.define(@This(), .{
+        .table = "post",
+        .primary_key = "id",
+        .timestamps = true,
+    });
+};
+```
+
+**Generated migration (`priv/migrations/001_create_post.zig`):**
+
+```zig
+const MigrationContext = @import("zzz_db").MigrationContext;
+
+pub fn up(ctx: *MigrationContext) !void {
+    try ctx.createTable("post", &.{
+        .{ .name = "id", .col_type = .integer, .primary_key = true, .auto_increment = true },
+        .{ .name = "title", .col_type = .text, .nullable = false },
+        .{ .name = "body", .col_type = .text, .nullable = false },
+        .{ .name = "user_id", .col_type = .bigint, .nullable = false },
+        .{ .name = "published", .col_type = .boolean, .nullable = false },
+        .{ .name = "inserted_at", .col_type = .bigint, .nullable = false },
+        .{ .name = "updated_at", .col_type = .bigint, .nullable = false },
+    });
+}
+
+pub fn down(ctx: *MigrationContext) !void {
+    try ctx.dropTable("post");
+}
+```
+
+### Channel
+
+```bash
+zzz gen channel <Name>
+```
+
+Generates a WebSocket channel at `src/channels/<name>.zig` with a join handler and a message broadcast handler.
+
+**Example:**
+
+```bash
+zzz gen channel Chat
+# Generated: src/channels/chat.zig
+```
+
+**Generated code:**
+
+```zig
+const std = @import("std");
+const zzz = @import("zzz");
+const Socket = zzz.Socket;
+const ChannelDef = zzz.ChannelDef;
+const JoinResult = zzz.JoinResult;
+
+// Chat Channel
+
+fn handleJoin(socket: *Socket, topic: []const u8, _payload: []const u8) JoinResult {
+    _ = socket;
+    _ = topic;
+    return .ok;
+}
+
+fn handleNewMessage(socket: *Socket, topic: []const u8, _event: []const u8, payload: []const u8) void {
+    socket.broadcast(topic, "new_msg", payload);
+}
+
+pub const channel = ChannelDef{
+    .topic_pattern = "chat:*",
+    .join = &handleJoin,
+    .handlers = &.{
+        .{ .event = "new_msg", .handler = &handleNewMessage },
+    },
+};
+```
+
+The `topic_pattern` uses a wildcard (`chat:*`) so clients can join topic-specific rooms such as `chat:lobby` or `chat:room_42`.
+
+### Mailer
+
+```bash
+zzz gen mailer <Name>
+zzz gen mailer <Name> --template
+```
+
+Generates a mailer module at `src/mailers/<name>.zig` with a `build` function that constructs an `Email` struct.
+
+Without `--template`, the email body is defined inline in Zig code. With `--template`, the generator creates separate template files:
+
+- `src/mailers/templates/<name>.html.zzz` -- HTML email template
+- `src/mailers/templates/<name>.txt.zzz` -- plain-text email template
+
+The mailer module uses `@embedFile` to load these templates at compile time.
+
+**Example:**
+
+<Tabs>
+  <TabItem label="Inline">
+    ```bash
+    zzz gen mailer Welcome
+    # Generated: src/mailers/welcome.zig
+    ```
+  </TabItem>
+  <TabItem label="With templates">
+    ```bash
+    zzz gen mailer Welcome --template
+    # Generated: src/mailers/welcome.zig
+    # Generated: src/mailers/templates/welcome.html.zzz
+    # Generated: src/mailers/templates/welcome.txt.zzz
+    ```
+  </TabItem>
+</Tabs>
+
+## Conflict handling
+
+If a file already exists at the target path, the generator skips it and prints a message:
+
+```
+  File already exists: src/controllers/users.zig (skipped)
+```
+
+This prevents accidental overwrites. Delete or rename the existing file first if you want to regenerate it.
+
+## Next steps
+
+- [Run migrations](/cli/migrations-cli) after generating a model
+- [Start the dev server](/cli/dev-server) to test your generated code
+- [CLI overview](/cli/overview) for the full list of commands

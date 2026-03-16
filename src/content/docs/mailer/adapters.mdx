@@ -1,0 +1,326 @@
+---
+title: "Mailer Adapters"
+description: "Configure SMTP, SendGrid, Mailgun, and development adapters for zzz_mailer email delivery."
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+zzz_mailer uses a compile-time adapter pattern for email delivery. Every adapter implements the same interface, and you select one when instantiating `Mailer(Adapter)`. This page covers the built-in adapters and how to write your own.
+
+## Adapter interface
+
+Every adapter must provide three declarations validated at compile time:
+
+```zig
+pub const MyAdapter = struct {
+    pub const Config = struct {
+        // Adapter-specific configuration fields
+    };
+
+    pub fn init(config: Config) MyAdapter {
+        // Initialize the adapter from config
+    }
+
+    pub fn deinit(self: *MyAdapter) void {
+        // Clean up resources
+    }
+
+    pub fn send(self: *MyAdapter, email: Email, allocator: std.mem.Allocator) SendResult {
+        // Deliver the email and return the result
+    }
+};
+```
+
+The `Mailer` generic validates these declarations at comptime. If any are missing, you get a clear compile error (e.g., `Adapter missing 'send' method`).
+
+## Built-in adapters
+
+### SmtpAdapter
+
+Delivers email over SMTP with optional STARTTLS and authentication. This is the most common adapter for production use.
+
+```zig
+const zzz_mailer = @import("zzz_mailer");
+const SmtpAdapter = zzz_mailer.SmtpAdapter;
+const Mailer = zzz_mailer.Mailer;
+
+var mailer = Mailer(SmtpAdapter).init(.{
+    .adapter = .{
+        .host = "smtp.example.com",
+        .port = 587,
+        .username = "apikey",
+        .password = "your-smtp-password",
+        .use_starttls = true,
+    },
+});
+defer mailer.deinit();
+```
+
+**Configuration options:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `host` | `[]const u8` | `"localhost"` | SMTP server hostname |
+| `port` | `u16` | `587` | SMTP server port |
+| `username` | `?[]const u8` | `null` | Authentication username (omit to skip auth) |
+| `password` | `?[]const u8` | `null` | Authentication password |
+| `use_starttls` | `bool` | `true` | Whether to upgrade the connection with STARTTLS |
+
+The adapter performs the full SMTP handshake: connect, EHLO, STARTTLS (if enabled), re-EHLO, authenticate (if credentials provided), then send.
+
+### SendGridAdapter
+
+Delivers email via the SendGrid v3 REST API over HTTPS.
+
+```zig
+const zzz_mailer = @import("zzz_mailer");
+const SendGridAdapter = zzz_mailer.SendGridAdapter;
+const Mailer = zzz_mailer.Mailer;
+
+var mailer = Mailer(SendGridAdapter).init(.{
+    .adapter = .{
+        .api_key = "SG.your-sendgrid-api-key",
+    },
+});
+defer mailer.deinit();
+```
+
+**Configuration options:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `api_key` | `[]const u8` | (required) | Your SendGrid API key |
+
+The adapter builds a JSON payload matching the SendGrid v3 `/mail/send` endpoint format and posts it over HTTPS to `api.sendgrid.com`. It supports `to`, `cc`, `bcc`, text body, and HTML body.
+
+### MailgunAdapter
+
+Delivers email via the Mailgun REST API using multipart form data over HTTPS.
+
+```zig
+const zzz_mailer = @import("zzz_mailer");
+const MailgunAdapter = zzz_mailer.MailgunAdapter;
+const Mailer = zzz_mailer.Mailer;
+
+var mailer = Mailer(MailgunAdapter).init(.{
+    .adapter = .{
+        .api_key = "key-your-mailgun-api-key",
+        .domain = "mg.example.com",
+    },
+});
+defer mailer.deinit();
+```
+
+**Configuration options:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `api_key` | `[]const u8` | (required) | Your Mailgun API key |
+| `domain` | `[]const u8` | (required) | Your Mailgun sending domain |
+
+The adapter posts multipart form data to `https://api.mailgun.net/v3/{domain}/messages` with HTTP Basic authentication (`api:{api_key}`).
+
+### DevAdapter
+
+Stores sent emails in an in-memory ring buffer (up to 256 emails) for inspection through the built-in dev mailbox web UI at `/__zzz/mailbox`. This is the recommended adapter during development.
+
+```zig
+const zzz_mailer = @import("zzz_mailer");
+const DevAdapter = zzz_mailer.DevAdapter;
+
+var mailer = zzz_mailer.DevMailer.init(.{});
+defer mailer.deinit();
+
+// Send an email -- it will appear in the dev mailbox
+_ = mailer.send(email, allocator);
+
+// Query stored emails programmatically
+const count = mailer.adapter.sentCount();
+if (mailer.adapter.getEmail(0)) |stored| {
+    std.debug.print("Subject: {s}\n", .{stored.getSubject()});
+    std.debug.print("HTML: {s}\n", .{stored.getHtmlBody()});
+}
+
+// Clear the mailbox
+mailer.adapter.clear();
+```
+
+The `DevAdapter` stores full email data including from, to, cc, bcc, subject, text body, and HTML body. Each stored email also has a timestamp.
+
+**Configuration:** The `DevAdapter.Config` struct has no fields -- simply use `.{}`.
+
+### TestAdapter
+
+A minimal in-memory adapter designed for automated tests. It stores subjects and addresses in a fixed-size ring buffer and provides assertion helpers.
+
+```zig
+const zzz_mailer = @import("zzz_mailer");
+const TestAdapter = zzz_mailer.TestAdapter;
+
+var mailer = zzz_mailer.TestMailer.init(.{});
+defer mailer.deinit();
+
+_ = mailer.send(email, std.testing.allocator);
+
+// Assertion helpers
+try std.testing.expectEqual(@as(usize, 1), mailer.adapter.allSentCount());
+try std.testing.expectEqualStrings("Welcome", mailer.adapter.lastSentSubject().?);
+try std.testing.expect(mailer.adapter.sentToAddress("user@example.com"));
+
+// Reset between tests
+mailer.adapter.clear();
+```
+
+**TestAdapter query methods:**
+
+| Method | Return type | Description |
+|--------|-------------|-------------|
+| `allSentCount()` | `usize` | Total number of emails sent |
+| `lastSentSubject()` | `?[]const u8` | Subject of the most recently sent email |
+| `sentToAddress(target)` | `bool` | Whether any email was sent to the given address |
+| `clear()` | `void` | Reset the send counter |
+
+### LogAdapter
+
+Logs email details to stderr without actually delivering them. Always returns success. Useful for debugging or as a fallback.
+
+```zig
+const zzz_mailer = @import("zzz_mailer");
+const LogAdapter = zzz_mailer.LogAdapter;
+
+var mailer = zzz_mailer.LogMailer.init(.{
+    .adapter = .{ .prefix = "[MAIL]" },
+});
+defer mailer.deinit();
+```
+
+**Configuration options:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `prefix` | `[]const u8` | `"[zzz_mailer]"` | Prefix prepended to each log line |
+
+Output example:
+```
+[MAIL] Sending email
+  From: noreply@example.com
+  Subject: Welcome
+  To: user@example.com
+  Body: Hello from the app!...
+```
+
+## Feature-gated adapters
+
+The `SmtpAdapter`, `SendGridAdapter`, and `MailgunAdapter` are feature-gated behind build options. If their feature flag is not enabled, they resolve to an empty `struct {}` so your code compiles without their dependencies.
+
+These are controlled by the `mailer_options` build module. When adding `zzz_mailer` as a dependency, you can pass options to enable or disable adapters:
+
+```zig
+const zzz_mailer = b.dependency("zzz_mailer", .{
+    .target = target,
+    .optimize = optimize,
+    .smtp_enabled = true,
+    .sendgrid_enabled = true,
+    .mailgun_enabled = false,
+});
+```
+
+## Switching adapters per environment
+
+A common pattern is to use `DevAdapter` in development and a real adapter in production. Since adapters are selected at comptime, use a build option or conditional import:
+
+<Tabs>
+<TabItem label="Build option">
+```zig
+// build.zig
+const use_smtp = b.option(bool, "smtp", "Use SMTP adapter") orelse false;
+
+// Pass to application module as a build option
+const options = b.addOptions();
+options.addOption(bool, "use_smtp", use_smtp);
+exe.root_module.addOptions("build_options", options);
+```
+
+```zig
+// In your application code
+const build_options = @import("build_options");
+const zzz_mailer = @import("zzz_mailer");
+
+const AppAdapter = if (build_options.use_smtp)
+    zzz_mailer.SmtpAdapter
+else
+    zzz_mailer.DevAdapter;
+
+var mailer = zzz_mailer.Mailer(AppAdapter).init(.{
+    .adapter = .{},
+});
+```
+</TabItem>
+<TabItem label="Separate modules">
+```zig
+// src/mailer_dev.zig
+const zzz_mailer = @import("zzz_mailer");
+pub const AppMailer = zzz_mailer.DevMailer;
+
+pub fn create() AppMailer {
+    return AppMailer.init(.{});
+}
+
+// src/mailer_prod.zig
+const zzz_mailer = @import("zzz_mailer");
+pub const AppMailer = zzz_mailer.SmtpMailer;
+
+pub fn create() AppMailer {
+    return AppMailer.init(.{
+        .adapter = .{
+            .host = "smtp.example.com",
+            .port = 587,
+            .username = "apikey",
+            .password = "your-key",
+        },
+    });
+}
+```
+</TabItem>
+</Tabs>
+
+## Writing a custom adapter
+
+To create your own adapter, implement the required interface:
+
+```zig
+const std = @import("std");
+const zzz_mailer = @import("zzz_mailer");
+const Email = zzz_mailer.Email;
+const SendResult = zzz_mailer.SendResult;
+
+pub const MyCustomAdapter = struct {
+    pub const Config = struct {
+        endpoint: []const u8 = "https://api.custom-esp.com",
+    };
+
+    config: Config,
+
+    pub fn init(config: Config) MyCustomAdapter {
+        return .{ .config = config };
+    }
+
+    pub fn deinit(_: *MyCustomAdapter) void {}
+
+    pub fn send(self: *MyCustomAdapter, email: Email, allocator: std.mem.Allocator) SendResult {
+        _ = self;
+        _ = allocator;
+        // Your delivery logic here
+        return .{ .success = true, .message_id = "custom-id" };
+    }
+};
+
+// Use it with the generic Mailer:
+const CustomMailer = zzz_mailer.Mailer(MyCustomAdapter);
+```
+
+## Next steps
+
+- [Mailer Overview](/mailer/overview/) -- core concepts and basic usage
+- [Email Templates](/mailer/templates/) -- build dynamic email bodies with the template engine
+- [Environment Config](/deployment/environment-config/) -- manage API keys and SMTP credentials per environment

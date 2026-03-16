@@ -1,0 +1,237 @@
+---
+title: "Associations"
+description: "Define relationships between database schemas and query them with joins."
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+zzz_db is not an ORM with ActiveRecord-style eager loading or lazy-loaded association proxies. Instead, it provides two complementary features: **association metadata** declared on schemas, and a **query builder with join support**. You define relationships declaratively in your schema and use explicit joins when you need related data.
+
+## Declaring associations in schemas
+
+Associations are defined as part of the `Schema.define` options via the `associations` field. This metadata is available at compile time for code generation, documentation, and tooling -- but it does not automatically generate queries or load related records.
+
+```zig
+const zzz_db = @import("zzz_db");
+
+pub const User = struct {
+    id: i64,
+    name: []const u8,
+    email: []const u8,
+    inserted_at: i64 = 0,
+    updated_at: i64 = 0,
+
+    pub const Meta = zzz_db.Schema.define(@This(), .{
+        .table = "users",
+        .primary_key = "id",
+        .timestamps = true,
+        .associations = &.{
+            .{ .name = "posts", .assoc_type = .has_many, .related_table = "posts", .foreign_key = "user_id" },
+            .{ .name = "profile", .assoc_type = .has_one, .related_table = "profiles", .foreign_key = "user_id" },
+        },
+    });
+};
+
+pub const Post = struct {
+    id: i64,
+    title: []const u8,
+    user_id: i64,
+    inserted_at: i64 = 0,
+    updated_at: i64 = 0,
+
+    pub const Meta = zzz_db.Schema.define(@This(), .{
+        .table = "posts",
+        .primary_key = "id",
+        .timestamps = true,
+        .associations = &.{
+            .{ .name = "user", .assoc_type = .belongs_to, .related_table = "users", .foreign_key = "user_id" },
+        },
+    });
+};
+```
+
+### Association types
+
+| Type | Description | Foreign key location |
+|---|---|---|
+| `.has_many` | One-to-many. A user has many posts. | On the related table (`posts.user_id`) |
+| `.has_one` | One-to-one. A user has one profile. | On the related table (`profiles.user_id`) |
+| `.belongs_to` | Inverse of has_many/has_one. A post belongs to a user. | On the current table (`posts.user_id`) |
+| `.many_to_many` | Many-to-many through a join table. | Requires `join_table`, `join_fk`, and `join_assoc_fk` |
+
+### AssociationDef fields
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `name` | `[]const u8` | (required) | Name of the association (for documentation/tooling) |
+| `assoc_type` | `AssociationType` | (required) | One of `.has_many`, `.has_one`, `.belongs_to`, `.many_to_many` |
+| `related_table` | `[]const u8` | (required) | The table being joined to |
+| `foreign_key` | `[]const u8` | (required) | The foreign key column |
+| `join_table` | `[]const u8` | `""` | Join table name (many_to_many only) |
+| `join_fk` | `[]const u8` | `""` | FK in the join table pointing to the current schema |
+| `join_assoc_fk` | `[]const u8` | `""` | FK in the join table pointing to the related schema |
+
+### Many-to-many example
+
+```zig
+pub const Article = struct {
+    id: i64,
+    title: []const u8,
+
+    pub const Meta = zzz_db.Schema.define(@This(), .{
+        .table = "articles",
+        .primary_key = "id",
+        .timestamps = false,
+        .associations = &.{
+            .{
+                .name = "tags",
+                .assoc_type = .many_to_many,
+                .related_table = "tags",
+                .foreign_key = "tag_id",
+                .join_table = "article_tags",
+                .join_fk = "article_id",
+                .join_assoc_fk = "tag_id",
+            },
+        },
+    });
+};
+```
+
+## Accessing association metadata
+
+Association definitions are available at compile time through the schema's `Meta` type:
+
+```zig
+const M = User.Meta;
+
+// Number of associations
+const n = M.associations.len; // 2
+
+// Access individual associations
+const posts_assoc = M.associations[0];
+// posts_assoc.name == "posts"
+// posts_assoc.assoc_type == .has_many
+// posts_assoc.related_table == "posts"
+// posts_assoc.foreign_key == "user_id"
+```
+
+This metadata is useful for building generic code, generating documentation, or writing custom query helpers.
+
+## Querying related data with joins
+
+To actually fetch related data, use the query builder's join methods. zzz_db does not auto-generate join queries from association metadata -- you write explicit joins.
+
+### Inner join
+
+Fetch only records that have a matching row in the joined table:
+
+```zig
+const q = zzz_db.Query(User).init()
+    .select("users.*, posts.title")
+    .innerJoin("posts", "users.id", "posts.user_id");
+
+const results = try repo.all(User, q, allocator);
+```
+
+### Left join
+
+Include all records from the primary table, with `NULL` for unmatched joins:
+
+```zig
+const q = zzz_db.Query(User).init()
+    .select("users.*, orders.total")
+    .leftJoin("orders", "users.id", "orders.user_id")
+    .where("orders.total", .gt, "100");
+
+const results = try repo.all(User, q, allocator);
+```
+
+### Generic join
+
+Use the `join` method directly to specify any join type:
+
+```zig
+const q = zzz_db.Query(User).init()
+    .join(.full, "profiles", "users.id", "profiles.user_id");
+```
+
+Available join types: `.inner`, `.left`, `.right`, `.full`.
+
+### Joining with aggregates
+
+Combine joins with `groupBy` and `having` to compute aggregate values across related records:
+
+```zig
+const q = zzz_db.Query(User).init()
+    .select("users.name, COUNT(posts.id) as post_count")
+    .innerJoin("posts", "users.id", "posts.user_id")
+    .groupBy("users.name")
+    .having("COUNT(posts.id)", .gte, "5");
+
+const results = try repo.all(User, q, allocator);
+```
+
+### Many-to-many joins
+
+For many-to-many relationships, chain two joins through the join table:
+
+```zig
+const q = zzz_db.Query(Article).init()
+    .select("articles.*, tags.name as tag_name")
+    .innerJoin("article_tags", "articles.id", "article_tags.article_id")
+    .innerJoin("tags", "article_tags.tag_id", "tags.id");
+
+const results = try repo.all(Article, q, allocator);
+```
+
+## Setting up foreign keys in migrations
+
+Association metadata is declarative only. You still need to create the actual foreign key constraints in your migrations:
+
+<Tabs>
+  <TabItem label="Inline (SQLite + PostgreSQL)">
+    Define the foreign key inline when creating the table using the `references` field on `ColumnDef`:
+
+    ```zig
+    try ctx.createTable("posts", &.{
+        .{ .name = "id", .col_type = .bigint, .primary_key = true, .auto_increment = true },
+        .{ .name = "title", .col_type = .text, .not_null = true },
+        .{ .name = "user_id", .col_type = .bigint, .not_null = true,
+           .references = .{ .table = "users", .column = "id" } },
+    });
+    ```
+  </TabItem>
+  <TabItem label="ALTER TABLE (PostgreSQL only)">
+    Add a foreign key to an existing table:
+
+    ```zig
+    try ctx.addForeignKey("posts", "user_id", "users", "id");
+    ```
+
+    This generates:
+    ```sql
+    ALTER TABLE posts ADD CONSTRAINT fk_posts_user_id
+        FOREIGN KEY (user_id) REFERENCES users(id)
+    ```
+
+    Note: `addForeignKey` is not supported on SQLite. SQLite requires foreign keys to be defined at table creation time.
+  </TabItem>
+</Tabs>
+
+## Design rationale
+
+zzz_db intentionally avoids implicit loading of associated records. This design:
+
+- Keeps queries explicit and predictable -- you always know exactly what SQL runs
+- Avoids the N+1 query problem by requiring explicit joins
+- Gives you full control over which columns are selected and how data is shaped
+- Works well with Zig's compile-time evaluation -- association metadata is zero-cost
+
+The association metadata on schemas serves as documentation and enables tooling, while the query builder gives you the power to express any join pattern the database supports.
+
+## Next steps
+
+- [Query Builder](/database/query-builder/) -- full reference for joins, grouping, having, and aggregates
+- [Schema](/database/schema/) -- defining schemas with `Schema.define`
+- [Migrations](/database/migrations/) -- creating tables and foreign key constraints
+- [Repository](/database/repository/) -- executing queries built with joins

@@ -1,0 +1,348 @@
+---
+title: "Repository"
+description: "Type-safe CRUD operations with the zzz_db repository pattern."
+---
+
+import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
+
+The repository provides type-safe database operations built on top of schemas and connection pools. It maps query results directly into Zig structs and handles parameterized queries with dialect-aware placeholders.
+
+## Creating a repository
+
+A `Repo` is generic over a backend and is initialized with a reference to a connection pool:
+
+<Tabs>
+<TabItem label="SQLite">
+```zig
+const zzz_db = @import("zzz_db");
+
+var pool = try zzz_db.SqlitePool.init(.{
+    .size = 5,
+    .connection = .{ .database = "myapp.db" },
+});
+defer pool.deinit();
+
+var repo = zzz_db.SqliteRepo.init(&pool);
+```
+</TabItem>
+<TabItem label="PostgreSQL">
+```zig
+const zzz_db = @import("zzz_db");
+
+var pool = try zzz_db.PgPool.init(.{
+    .size = 5,
+    .connection = .{ .database = "postgresql://localhost/myapp" },
+});
+defer pool.deinit();
+
+var repo = zzz_db.PgRepo.init(&pool);
+```
+</TabItem>
+</Tabs>
+
+The repo automatically checks out and releases connections from the pool for each operation.
+
+## Schema requirement
+
+All typed repo operations require a struct with a `pub const Meta` declaration produced by `Schema.define`. See the [Schema](/database/schema/) page for details.
+
+```zig
+pub const User = struct {
+    id: i64,
+    name: []const u8,
+    email: []const u8,
+    inserted_at: i64 = 0,
+    updated_at: i64 = 0,
+
+    pub const Meta = zzz_db.Schema.define(@This(), .{
+        .table = "users",
+        .primary_key = "id",
+        .timestamps = true,
+    });
+};
+```
+
+## CRUD operations
+
+### insert
+
+Inserts a new record and returns the struct with the auto-generated primary key populated. The primary key field in the input is ignored (set it to `0`).
+
+```zig
+var user = try repo.insert(User, .{
+    .id = 0,
+    .name = "Alice",
+    .email = "alice@example.com",
+}, allocator);
+defer zzz_db.freeOne(User, &user, allocator);
+
+// user.id is now set to the database-generated value
+```
+
+### get
+
+Fetches a single record by primary key. Returns `null` if no record is found.
+
+```zig
+if (try repo.get(User, 42, allocator)) |*user| {
+    defer zzz_db.freeOne(User, user, allocator);
+    // use user
+} else {
+    // not found
+}
+```
+
+### one
+
+Executes a query and returns the first matching row, or `null`. Automatically applies `LIMIT 1`.
+
+```zig
+const query = zzz_db.Query(User).init()
+    .where("email", .eq, "alice@example.com");
+
+if (try repo.one(User, query, allocator)) |*user| {
+    defer zzz_db.freeOne(User, user, allocator);
+    // use user
+}
+```
+
+### all
+
+Executes a query and returns all matching rows as a slice.
+
+```zig
+const query = zzz_db.Query(User).init()
+    .where("name", .like, "%alice%")
+    .orderBy("inserted_at", .desc)
+    .limit(20);
+
+const users = try repo.all(User, query, allocator);
+defer zzz_db.freeAll(User, users, allocator);
+
+for (users) |user| {
+    // process each user
+}
+```
+
+### update
+
+Updates a record by primary key. All non-PK fields are SET in the UPDATE statement. Returns the updated struct.
+
+```zig
+var updated = try repo.update(User, .{
+    .id = user.id,
+    .name = "Alice Updated",
+    .email = "newalice@example.com",
+    .inserted_at = user.inserted_at,
+    .updated_at = std.time.timestamp(),
+}, allocator);
+defer zzz_db.freeOne(User, &updated, allocator);
+```
+
+### delete
+
+Deletes a record by primary key. Only the primary key field needs to be populated.
+
+```zig
+try repo.delete(User, user);
+```
+
+You can also construct a minimal struct for deletion:
+
+```zig
+try repo.delete(User, .{
+    .id = 42,
+    .name = "",
+    .email = "",
+});
+```
+
+### count
+
+Counts records matching a query. Returns an `i64`.
+
+```zig
+const query = zzz_db.Query(User).init()
+    .where("email", .like, "%@example.com");
+
+const total = try repo.count(User, query, allocator);
+```
+
+### exists
+
+Checks if any records match the query. Returns a `bool`.
+
+```zig
+const query = zzz_db.Query(User).init()
+    .where("email", .eq, "alice@example.com");
+
+const found = try repo.exists(User, query, allocator);
+```
+
+### aggregate
+
+Runs an aggregate function (`count`, `sum`, `avg`, `min`, `max`) on a field. Returns `?f64`.
+
+```zig
+const query = zzz_db.Query(User).init();
+
+const total_age = try repo.aggregate(User, query, .sum, "age", allocator);
+const avg_score = try repo.aggregate(User, query, .avg, "score", allocator);
+const max_id = try repo.aggregate(User, query, .max, "id", allocator);
+```
+
+## Raw queries
+
+When you need full control over the SQL, use the raw query methods. Column order in the SELECT must match the struct field order.
+
+### rawAll
+
+```zig
+const users = try repo.rawAll(
+    User,
+    "SELECT id, name, email, inserted_at, updated_at FROM users WHERE name LIKE ?",
+    &.{"%alice%"},
+    allocator,
+);
+defer zzz_db.freeAll(User, users, allocator);
+```
+
+### rawOne
+
+```zig
+var user = try repo.rawOne(
+    User,
+    "SELECT id, name, email, inserted_at, updated_at FROM users WHERE id = ?",
+    &.{"1"},
+    allocator,
+);
+```
+
+### rawExec
+
+For INSERT, UPDATE, and DELETE statements that do not return rows:
+
+```zig
+var result = try repo.rawExec(
+    "INSERT INTO users (name, email, inserted_at, updated_at) VALUES (?, ?, ?, ?)",
+    &.{ "RawUser", "raw@example.com", "0", "0" },
+);
+defer result.deinit();
+
+const new_id = result.lastInsertId();
+const affected = result.rowsAffected();
+```
+
+## Preloading associations
+
+Load related records in a single query using `repo.preload()`. The parent schema must have associations declared (see [Schema](/database/schema/)).
+
+```zig
+// Fetch all users
+const query = zzz_db.Query(User).init().orderBy("id", .asc);
+const users = try repo.all(User, query, allocator);
+defer zzz_db.freeAll(User, users, allocator);
+
+// Preload posts for each user (returns [][]Post, parallel to users)
+const posts_by_user = try repo.preload(User, Post, "posts", users, allocator);
+defer {
+    for (posts_by_user) |posts| {
+        for (posts) |*post| {
+            var p = post.*;
+            zzz_db.freeOne(Post, &p, allocator);
+        }
+        allocator.free(posts);
+    }
+    allocator.free(posts_by_user);
+}
+
+// posts_by_user[0] -> posts for users[0]
+// posts_by_user[1] -> posts for users[1]
+```
+
+## Transactions
+
+Use `repo.beginTransaction()` for manual transaction management:
+
+```zig
+var txn = try repo.beginTransaction();
+defer txn.release();
+
+// Execute operations on the transaction connection
+try txn.conn().exec("INSERT INTO users (name, email, inserted_at, updated_at) VALUES ('TxnUser', 'txn@e.com', 0, 0)");
+
+// Commit or rollback
+try txn.commit();
+// or: txn.rollback();
+```
+
+See [Transactions](/database/transactions/) for details on isolation levels and savepoints.
+
+## Memory management
+
+The repo allocates memory for string fields (`[]const u8`) in returned structs. You must free these allocations:
+
+| Return type | Free with                                   |
+| ----------- | ------------------------------------------- |
+| Single struct (`insert`, `get`, `one`, `update`) | `zzz_db.freeOne(T, &item, allocator)` |
+| Slice of structs (`all`, `rawAll`)               | `zzz_db.freeAll(T, items, allocator)` |
+| `rawExec` result                                 | `result.deinit()`                     |
+
+Always use `defer` for cleanup:
+
+```zig
+var user = try repo.insert(User, .{ .id = 0, .name = "Alice", .email = "a@e.com" }, allocator);
+defer zzz_db.freeOne(User, &user, allocator);
+```
+
+## Full example
+
+This example from the zzz example application shows a complete CRUD workflow in a web handler:
+
+```zig
+const zzz_db = @import("zzz_db");
+
+fn dbDemo(ctx: *zzz.Context) !void {
+    const repo = zzz_db.SqliteRepo.init(&db_pool);
+
+    // Query all users, ordered by newest first
+    const query = zzz_db.Query(DemoUser).init().orderBy("id", .desc);
+    const users = repo.all(DemoUser, query, ctx.allocator) catch {
+        ctx.text(.internal_server_error, "Failed to load users");
+        return;
+    };
+    defer zzz_db.freeAll(DemoUser, users, ctx.allocator);
+
+    // Render template with results
+    try ctx.renderWithLayout(AppLayout, DbDemoContent, .ok, .{
+        .users = users,
+    });
+}
+
+fn dbAddUser(ctx: *zzz.Context) !void {
+    const repo = zzz_db.SqliteRepo.init(&db_pool);
+    const name = ctx.param("name") orelse "";
+    const email = ctx.param("email") orelse "";
+
+    if (name.len > 0 and email.len > 0) {
+        var inserted = repo.insert(DemoUser, .{
+            .id = 0,
+            .name = name,
+            .email = email,
+        }, ctx.allocator) catch {
+            ctx.text(.internal_server_error, "Failed to insert user");
+            return;
+        };
+        zzz_db.freeOne(DemoUser, &inserted, ctx.allocator);
+    }
+
+    ctx.redirect("/db", .see_other);
+}
+```
+
+## Next steps
+
+- [Query Builder](/database/query-builder/) -- compose queries with where, joins, and aggregations
+- [Changesets](/database/changesets/) -- validate input before inserting or updating
+- [Transactions](/database/transactions/) -- wrap multiple operations in a transaction
+- [Schema](/database/schema/) -- configure table mappings and associations

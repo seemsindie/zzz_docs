@@ -1,0 +1,302 @@
+---
+title: "Email Templates"
+description: "Create templated emails with HTML and plain text bodies, MIME multipart messages, and the zzz template engine."
+---
+
+import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+zzz_mailer supports both inline email bodies and template-driven emails using the zzz template engine. This page covers constructing plain text, HTML, and multipart emails, working with attachments, and using `.zzz` templates for dynamic content.
+
+## Plain text and HTML bodies
+
+The `Email` struct has two optional body fields: `text_body` and `html_body`. You can set one or both:
+
+<Tabs>
+<TabItem label="Plain text only">
+```zig
+const email = Email{
+    .from = .{ .email = "noreply@example.com" },
+    .to = &.{.{ .email = "user@example.com" }},
+    .subject = "Account update",
+    .text_body = "Your account has been updated successfully.",
+};
+```
+The message is sent with `Content-Type: text/plain; charset=utf-8`.
+</TabItem>
+<TabItem label="HTML only">
+```zig
+const email = Email{
+    .from = .{ .email = "noreply@example.com" },
+    .to = &.{.{ .email = "user@example.com" }},
+    .subject = "Account update",
+    .html_body =
+        \\<!DOCTYPE html>
+        \\<html>
+        \\<body>
+        \\  <h1>Account Updated</h1>
+        \\  <p>Your account has been updated successfully.</p>
+        \\</body>
+        \\</html>
+    ,
+};
+```
+The message is sent with `Content-Type: text/html; charset=utf-8`.
+</TabItem>
+<TabItem label="Both (multipart)">
+```zig
+const email = Email{
+    .from = .{ .email = "noreply@example.com" },
+    .to = &.{.{ .email = "user@example.com" }},
+    .subject = "Account update",
+    .text_body = "Your account has been updated successfully.",
+    .html_body =
+        \\<!DOCTYPE html>
+        \\<html>
+        \\<body>
+        \\  <h1>Account Updated</h1>
+        \\  <p>Your account has been updated successfully.</p>
+        \\</body>
+        \\</html>
+    ,
+};
+```
+The MIME builder wraps both in a `multipart/alternative` message, so the recipient's mail client can choose the best format.
+</TabItem>
+</Tabs>
+
+It is best practice to always provide both `text_body` and `html_body`. Some mail clients and accessibility tools rely on the plain text version, while the HTML version provides rich formatting.
+
+## MIME message construction
+
+zzz_mailer includes a built-in `MimeBuilder` that constructs RFC 5322 / RFC 2045 compliant messages from an `Email` struct. You generally do not need to use this directly -- the adapters call it internally -- but it is available for advanced use cases.
+
+```zig
+const zzz_mailer = @import("zzz_mailer");
+const MimeBuilder = zzz_mailer.MimeBuilder;
+const Email = zzz_mailer.Email;
+
+const email = Email{
+    .from = .{ .email = "sender@example.com" },
+    .to = &.{.{ .email = "to@example.com" }},
+    .subject = "Hello",
+    .text_body = "Hello text",
+    .html_body = "<h1>Hello html</h1>",
+};
+
+var buf: [8192]u8 = undefined;
+if (MimeBuilder.build(email, &buf)) |raw_message| {
+    // raw_message contains the complete RFC 5322 message
+    // with headers, MIME boundaries, and encoded content
+}
+```
+
+The builder automatically selects the correct MIME structure:
+
+| Body fields set | MIME structure |
+|----------------|----------------|
+| `text_body` only | `text/plain` (no multipart) |
+| `html_body` only | `text/html` (no multipart) |
+| Both bodies | `multipart/alternative` with text and HTML parts |
+| Any body + attachments | `multipart/mixed` wrapping a `multipart/alternative` and attachment parts |
+
+## Attachments
+
+Add file attachments using the `attachments` field. Each attachment specifies a filename, content (as bytes), content type, and disposition:
+
+```zig
+const email = Email{
+    .from = .{ .email = "noreply@example.com" },
+    .to = &.{.{ .email = "user@example.com" }},
+    .subject = "Your invoice",
+    .text_body = "Please find your invoice attached.",
+    .attachments = &.{
+        .{
+            .filename = "invoice.pdf",
+            .content = pdf_bytes,
+            .content_type = "application/pdf",
+            .disposition = .attachment,
+        },
+    },
+};
+```
+
+**Attachment fields:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `filename` | `[]const u8` | (required) | The filename shown to the recipient |
+| `content` | `[]const u8` | (required) | Raw file content (automatically base64-encoded by the MIME builder) |
+| `content_type` | `[]const u8` | `"application/octet-stream"` | MIME content type |
+| `disposition` | `Disposition` | `.attachment` | `.attachment` or `.inline` |
+| `content_id` | `?[]const u8` | `null` | Content-ID for inline images (used with `cid:` references in HTML) |
+
+### Inline images
+
+To embed images directly in HTML email bodies, use inline disposition with a Content-ID:
+
+```zig
+const email = Email{
+    .from = .{ .email = "noreply@example.com" },
+    .to = &.{.{ .email = "user@example.com" }},
+    .subject = "Check this out",
+    .html_body =
+        \\<html><body>
+        \\<img src="cid:logo" alt="Logo">
+        \\<p>Welcome to our app!</p>
+        \\</body></html>
+    ,
+    .attachments = &.{
+        .{
+            .filename = "logo.png",
+            .content = logo_png_bytes,
+            .content_type = "image/png",
+            .disposition = .@"inline",
+            .content_id = "logo",
+        },
+    },
+};
+```
+
+## Custom headers
+
+Add custom email headers via the `headers` field:
+
+```zig
+const email = Email{
+    .from = .{ .email = "noreply@example.com" },
+    .to = &.{.{ .email = "user@example.com" }},
+    .subject = "Custom headers example",
+    .text_body = "This email has custom headers.",
+    .headers = &.{
+        .{ .name = "X-Mailer", .value = "zzz_mailer/0.1.0" },
+        .{ .name = "X-Priority", .value = "1" },
+        .{ .name = "List-Unsubscribe", .value = "<https://example.com/unsubscribe>" },
+    },
+};
+```
+
+## Using the template engine for email bodies
+
+For dynamic emails with variable content, use the zzz template engine. The `zzz_template` module is re-exported through `zzz_mailer.template` for convenience.
+
+### Inline templates
+
+Define templates as comptime strings and render them with data:
+
+```zig
+const zzz_mailer = @import("zzz_mailer");
+const Email = zzz_mailer.Email;
+const tmpl = zzz_mailer.template;
+
+const HtmlTemplate = tmpl.template(
+    \\<!DOCTYPE html>
+    \\<html>
+    \\<body>
+    \\  <h1>Welcome, {{name}}!</h1>
+    \\  <p>Your account has been created.</p>
+    \\  <p>Your username is: {{username}}</p>
+    \\</body>
+    \\</html>
+);
+
+const TextTemplate = tmpl.template(
+    \\Welcome, {{name}}!
+    \\
+    \\Your account has been created.
+    \\Your username is: {{username}}
+);
+
+fn buildWelcomeEmail(allocator: std.mem.Allocator, name: []const u8, username: []const u8) !Email {
+    return Email{
+        .from = .{ .email = "noreply@example.com", .name = "My App" },
+        .to = &.{.{ .email = "user@example.com" }},
+        .subject = "Welcome to My App",
+        .text_body = try TextTemplate.render(allocator, .{
+            .name = name,
+            .username = username,
+        }),
+        .html_body = try HtmlTemplate.render(allocator, .{
+            .name = name,
+            .username = username,
+        }),
+    };
+}
+```
+
+### File-based templates with @embedFile
+
+For larger templates, store them as separate files and embed them at compile time:
+
+<Steps>
+1. **Create template files**
+
+   Create `src/templates/welcome.html.zzz`:
+   ```html
+   <!DOCTYPE html>
+   <html>
+   <body style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+     <h1>{{subject}}</h1>
+     <p>{{greeting}}</p>
+     <p>{{body}}</p>
+     <p>Thanks,<br>The Team</p>
+   </body>
+   </html>
+   ```
+
+   Create `src/templates/welcome.txt.zzz`:
+   ```
+   {{subject}}
+
+   {{greeting}}
+
+   {{body}}
+
+   Thanks,
+   The Team
+   ```
+
+2. **Embed and render in your mailer module**
+
+   ```zig
+   const zzz_mailer = @import("zzz_mailer");
+   const tmpl = zzz_mailer.template;
+   const Email = zzz_mailer.Email;
+
+   const HtmlTemplate = tmpl.template(@embedFile("templates/welcome.html.zzz"));
+   const TextTemplate = tmpl.template(@embedFile("templates/welcome.txt.zzz"));
+
+   pub fn build(allocator: std.mem.Allocator, to: zzz_mailer.Address, data: anytype) !Email {
+       return Email{
+           .from = .{ .email = "noreply@example.com", .name = "My App" },
+           .to = &.{to},
+           .subject = "Welcome",
+           .text_body = try TextTemplate.render(allocator, data),
+           .html_body = try HtmlTemplate.render(allocator, data),
+       };
+   }
+   ```
+</Steps>
+
+### Generating mailer modules with the CLI
+
+The `zzz` CLI can scaffold a mailer module for you:
+
+```bash
+zzz gen mailer welcome
+```
+
+This generates a mailer module with `build` function, HTML body, and text body methods. The generated code follows the pattern shown above.
+
+For template-based mailers with separate `.zzz` template files:
+
+```bash
+zzz gen mailer welcome --templates
+```
+
+This additionally creates `templates/welcome.html.zzz` and `templates/welcome.txt.zzz` files using `@embedFile`.
+
+## Next steps
+
+- [Mailer Overview](/mailer/overview/) -- core mailer concepts, rate limiting, and telemetry
+- [Adapters](/mailer/adapters/) -- configure delivery backends
+- [Template Syntax](/templates/syntax/) -- full reference for the zzz template language

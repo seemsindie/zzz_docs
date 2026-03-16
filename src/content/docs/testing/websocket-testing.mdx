@@ -1,0 +1,286 @@
+---
+title: "WebSocket Testing"
+description: "Test WebSocket channel logic with the built-in TestChannel -- join topics, push events, and assert on messages without a network connection."
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+The `TestChannel` utility lets you test your WebSocket channel handlers at the protocol layer without opening a real WebSocket connection. It creates a mock socket, drives your channel join/leave/event handlers directly, and captures outgoing messages for assertions.
+
+## How it works
+
+`TestChannel` is generic over your channel definitions (the same `[]const ChannelDef` slice you pass to your application). When you call methods like `join`, `push`, or `leave`, the test channel:
+
+1. Matches the topic against your channel patterns (e.g., `"room:*"` matches `"room:lobby"`).
+2. Calls the corresponding handler function with a mock `Socket`.
+3. Captures any messages the handler sends via `socket.push()` into an internal buffer.
+4. Exposes those captured messages through `expectPush` and `expectBroadcast`.
+
+No TCP listener, no WebSocket handshake, no event loop -- just your channel logic running synchronously in a test block.
+
+## Setting up a test channel
+
+<Steps>
+
+1. **Define your channels** as you normally would:
+
+   ```zig
+   const zzz = @import("zzz");
+   const ChannelDef = zzz.ChannelDef;
+   const Socket = zzz.Socket;
+   const JoinResult = zzz.JoinResult;
+
+   const channels: []const ChannelDef = &.{
+       .{
+           .topic_pattern = "room:*",
+           .join = &struct {
+               fn handle(_: *Socket, _: []const u8, _: []const u8) JoinResult {
+                   return .ok;
+               }
+           }.handle,
+           .handlers = &.{
+               .{
+                   .event = "new_msg",
+                   .handler = &struct {
+                       fn handle(socket: *Socket, topic: []const u8, _: []const u8, payload: []const u8) void {
+                           socket.push(topic, "msg_received", payload);
+                       }
+                   }.handle,
+               },
+           },
+       },
+   };
+   ```
+
+2. **Create a `TestChannel`** parameterized on your channel definitions:
+
+   ```zig
+   const std = @import("std");
+
+   test "channel basics" {
+       var ch = zzz.testing.TestChannel(&channels).init(std.testing.allocator);
+       defer ch.deinit();
+       ch.setup();
+
+       const result = ch.join("room:lobby", "{}");
+       try std.testing.expect(result == .ok);
+   }
+   ```
+
+3. **Call `setup()`** after `init()`. This step fixes internal pointers that connect the mock writer to the socket. It must be called before any `join`, `push`, or `leave` operation. If you forget, `join` and `push` will call it automatically.
+
+</Steps>
+
+## Joining topics
+
+Use `join` to simulate a client joining a channel topic. The return value tells you whether the join was accepted:
+
+```zig
+test "join success" {
+    var ch = zzz.testing.TestChannel(&channels).init(std.testing.allocator);
+    defer ch.deinit();
+    ch.setup();
+
+    const result = ch.join("room:lobby", "{}");
+    try std.testing.expect(result == .ok);
+    try std.testing.expect(ch.socket.isJoined("room:lobby"));
+}
+
+test "join rejection" {
+    var ch = zzz.testing.TestChannel(&channels).init(std.testing.allocator);
+    defer ch.deinit();
+    ch.setup();
+
+    const result = ch.join("restricted", "{}");
+    try std.testing.expect(result == .@"error");
+    try std.testing.expect(!ch.socket.isJoined("restricted"));
+}
+
+test "join unknown topic" {
+    var ch = zzz.testing.TestChannel(&channels).init(std.testing.allocator);
+    defer ch.deinit();
+    ch.setup();
+
+    const result = ch.join("nonexistent:topic", "{}");
+    try std.testing.expect(result == .@"error");
+}
+```
+
+The `join` function:
+- Returns `.ok` if the channel's join handler accepts the connection.
+- Returns `.@"error"` if the handler rejects, or if no channel matches the topic pattern.
+- Tracks the topic internally so subsequent `push` calls are routed correctly.
+
+## Pushing events
+
+After joining, use `push` to send an event to a channel. The channel handler runs synchronously, and any messages it sends are captured:
+
+```zig
+test "push and receive" {
+    var ch = zzz.testing.TestChannel(&channels).init(std.testing.allocator);
+    defer ch.deinit();
+    ch.setup();
+
+    _ = ch.join("room:lobby", "{}");
+    ch.push("room:lobby", "new_msg", "{\"body\":\"hello\"}");
+
+    const payload = ch.expectPush("msg_received");
+    try std.testing.expect(payload != null);
+    try std.testing.expect(std.mem.indexOf(u8, payload.?, "hello") != null);
+}
+```
+
+If you push to a topic the client has not joined, the push is silently ignored:
+
+```zig
+test "push without join is ignored" {
+    var ch = zzz.testing.TestChannel(&channels).init(std.testing.allocator);
+    defer ch.deinit();
+    ch.setup();
+
+    ch.push("room:lobby", "new_msg", "{}");
+    try std.testing.expect(ch.expectPush("msg_received") == null);
+}
+```
+
+## Asserting on messages
+
+### expectPush
+
+`expectPush(event)` searches all captured messages for one matching the given event name. Returns the payload as a byte slice, or `null` if no match is found:
+
+```zig
+const payload = ch.expectPush("msg_received");
+if (payload) |p| {
+    try std.testing.expect(std.mem.indexOf(u8, p, "hello") != null);
+}
+```
+
+### expectBroadcast
+
+`expectBroadcast(topic, event)` searches for a message matching both a specific topic and event. This is useful when your handler broadcasts to other topics:
+
+```zig
+const payload = ch.expectBroadcast("room:lobby", "user_joined");
+try std.testing.expect(payload != null);
+```
+
+## Leaving topics
+
+Use `leave` to simulate a client disconnecting from a topic. If the channel defines a `leave` handler, it runs during this call:
+
+```zig
+test "leave a topic" {
+    var ch = zzz.testing.TestChannel(&channels).init(std.testing.allocator);
+    defer ch.deinit();
+    ch.setup();
+
+    _ = ch.join("room:lobby", "{}");
+    try std.testing.expect(ch.socket.isJoined("room:lobby"));
+
+    ch.leave("room:lobby");
+    try std.testing.expect(!ch.socket.isJoined("room:lobby"));
+}
+```
+
+## Resetting state
+
+Two methods control state cleanup between test scenarios:
+
+| Method | Effect |
+|---|---|
+| `resetMessages()` | Clears captured messages only. Joined topics remain. |
+| `reset()` | Clears captured messages and all joined topics. |
+
+```zig
+test "reset clears everything" {
+    var ch = zzz.testing.TestChannel(&channels).init(std.testing.allocator);
+    defer ch.deinit();
+    ch.setup();
+
+    _ = ch.join("room:lobby", "{}");
+    ch.push("room:lobby", "new_msg", "{\"body\":\"hi\"}");
+
+    ch.reset();
+
+    try std.testing.expect(!ch.socket.isJoined("room:lobby"));
+    try std.testing.expectEqual(@as(usize, 0), ch.sent_count);
+}
+```
+
+## SentMessage structure
+
+Captured messages are stored as `SentMessage` structs with fixed-size buffers:
+
+| Field | Max size | Accessor |
+|---|---|---|
+| `topic` | 128 bytes | `.topicSlice()` |
+| `event` | 64 bytes | `.eventSlice()` |
+| `payload` | 2048 bytes | `.payloadSlice()` |
+
+The test channel stores up to 64 sent messages. For most test scenarios this is more than sufficient.
+
+## A complete example
+
+```zig
+const std = @import("std");
+const zzz = @import("zzz");
+const ChannelDef = zzz.ChannelDef;
+const Socket = zzz.Socket;
+const JoinResult = zzz.JoinResult;
+
+const chat_channels: []const ChannelDef = &.{
+    .{
+        .topic_pattern = "room:*",
+        .join = &struct {
+            fn handle(_: *Socket, _: []const u8, _: []const u8) JoinResult {
+                return .ok;
+            }
+        }.handle,
+        .leave = &struct {
+            fn handle(socket: *Socket, topic: []const u8) void {
+                socket.push(topic, "user_left", "{}");
+            }
+        }.handle,
+        .handlers = &.{
+            .{
+                .event = "new_msg",
+                .handler = &struct {
+                    fn handle(socket: *Socket, topic: []const u8, _: []const u8, payload: []const u8) void {
+                        socket.push(topic, "msg_received", payload);
+                    }
+                }.handle,
+            },
+        },
+    },
+};
+
+test "chat room flow" {
+    var ch = zzz.testing.TestChannel(&chat_channels).init(std.testing.allocator);
+    defer ch.deinit();
+    ch.setup();
+
+    // Join the room
+    const join_result = ch.join("room:general", "{}");
+    try std.testing.expect(join_result == .ok);
+
+    // Send a message
+    ch.push("room:general", "new_msg", "{\"body\":\"hello everyone\"}");
+    const msg = ch.expectPush("msg_received");
+    try std.testing.expect(msg != null);
+
+    // Clear messages for the next assertion
+    ch.resetMessages();
+
+    // Leave the room
+    ch.leave("room:general");
+    const leave_msg = ch.expectPush("user_left");
+    try std.testing.expect(leave_msg != null);
+}
+```
+
+## Next steps
+
+- [Testing Overview](/testing/overview/) -- introduction to the full testing toolkit.
+- [HTTP Test Client](/testing/http-test-client/) -- testing HTTP endpoints with `TestClient`.
+- [Database Sandbox](/testing/database-sandbox/) -- transaction-based test isolation and factories.

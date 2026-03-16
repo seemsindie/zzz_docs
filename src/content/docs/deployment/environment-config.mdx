@@ -1,0 +1,328 @@
+---
+title: "Environment Config"
+description: "Configure your zzz application for different environments using .env files, system variables, and typed config merging."
+---
+
+import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+zzz provides a two-layer configuration system: a compile-time `Environment` enum for build-time decisions, and a runtime `Env` loader that reads `.env` files and system environment variables. The `mergeWithEnv` function bridges the two by overlaying runtime values onto your typed config struct.
+
+## The Env loader
+
+The `Env` struct loads configuration from `.env` files and the system environment. It handles parsing, quoting, comments, and overlay precedence.
+
+### Initialization
+
+```zig
+const std = @import("std");
+const zzz = @import("zzz");
+const Env = zzz.Env;
+
+var env = try Env.init(allocator, .{
+    .path = ".env",              // Base .env file path (null to skip)
+    .environment = "prod",       // Loads .env.prod as an overlay
+    .system_env = true,          // Override from system environment variables
+});
+defer env.deinit();
+```
+
+**Options:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `path` | `?[]const u8` | `".env"` | Path to the base `.env` file. Set to `null` to skip file loading. |
+| `environment` | `?[]const u8` | `null` | Environment name. When set, loads `.env.{environment}` as an overlay. |
+| `system_env` | `bool` | `true` | Whether to override loaded values with system environment variables. |
+
+### Precedence order
+
+Values are resolved in this order (highest priority first):
+
+1. **System environment variables** (from `getenv`, when `system_env = true`)
+2. **Environment overlay** file (e.g., `.env.prod`)
+3. **Base `.env` file**
+4. **Hardcoded defaults** in your config struct
+
+### .env file format
+
+The parser supports the standard `.env` format:
+
+```bash
+# Comments start with #
+DATABASE_URL=postgres://localhost/myapp
+
+# Quoted values preserve spaces and special characters
+APP_NAME="My Application"
+GREETING='Hello World'
+
+# Inline comments (only for unquoted values)
+PORT=8080 # web server port
+
+# export prefix is stripped
+export SECRET_KEY_BASE=abc123
+
+# Empty values are allowed
+OPTIONAL_FLAG=
+
+# Duplicate keys: last value wins
+MODE=debug
+MODE=release
+```
+
+**Parsing rules:**
+- Lines starting with `#` are comments
+- Empty lines are skipped
+- `export ` prefix is stripped
+- Double-quoted values: content between quotes is preserved (including `#` characters)
+- Single-quoted values: content between quotes is preserved literally
+- Unquoted values: trailing ` #` starts an inline comment
+- Whitespace around `=` is trimmed
+- Duplicate keys: the last occurrence wins
+- CRLF and LF line endings are both supported
+- Missing files are silently skipped (not an error)
+
+## Reading values
+
+The `Env` struct provides typed accessors:
+
+```zig
+var env = try Env.init(allocator, .{});
+defer env.deinit();
+
+// String value (returns ?[]const u8)
+const host = env.get("HOST");
+
+// String with default fallback
+const db_host = env.getDefault("DB_HOST", "localhost");
+
+// Required value (returns error if missing)
+const secret = try env.require("SECRET_KEY_BASE");
+
+// Integer value with default
+const port = env.getInt(u16, "PORT", 4000);
+
+// Boolean value with default
+// Recognizes: true/True/TRUE/1/yes/Yes/YES and false/False/FALSE/0/no/No/NO
+const debug = env.getBool("DEBUG", false);
+```
+
+**Accessor methods:**
+
+| Method | Return type | Description |
+|--------|-------------|-------------|
+| `get(key)` | `?[]const u8` | Returns the value or `null` |
+| `getDefault(key, default)` | `[]const u8` | Returns the value or the default |
+| `require(key)` | `Error![]const u8` | Returns the value or `error.MissingRequiredVar` |
+| `getInt(T, key, default)` | `T` | Parses an integer or returns the default |
+| `getBool(key, default)` | `bool` | Parses a boolean or returns the default |
+
+## Merging with typed config structs
+
+The `mergeWithEnv` function overlays environment variables onto a Zig struct. For each field in your config struct, it looks up the corresponding environment variable (field name converted from `snake_case` to `UPPER_SNAKE_CASE`):
+
+```zig
+const zzz = @import("zzz");
+
+const AppConfig = struct {
+    host: []const u8,
+    port: u16,
+    database_url: []const u8,
+    show_errors: bool,
+    log_level: LogLevel,
+};
+
+const LogLevel = enum { debug, info, warn, err };
+
+const defaults = AppConfig{
+    .host = "127.0.0.1",
+    .port = 4000,
+    .database_url = "sqlite:data/dev.db",
+    .show_errors = true,
+    .log_level = .debug,
+};
+
+pub fn main() !void {
+    var env = try zzz.Env.init(allocator, .{ .environment = "prod" });
+    defer env.deinit();
+
+    const config = zzz.mergeWithEnv(AppConfig, defaults, &env);
+    // Fields are overridden if a matching env var exists:
+    //   host         <-- HOST
+    //   port         <-- PORT
+    //   database_url <-- DATABASE_URL
+    //   show_errors  <-- SHOW_ERRORS
+    //   log_level    <-- LOG_LEVEL
+}
+```
+
+**Field name mapping:**
+- `host` maps to `HOST`
+- `port` maps to `PORT`
+- `database_url` maps to `DATABASE_URL`
+- `secret_key_base` maps to `SECRET_KEY_BASE`
+
+**Supported field types:**
+
+| Type | Parsing behavior |
+|------|-----------------|
+| `[]const u8` | Direct string passthrough |
+| `u16`, `u32`, `u64`, `i16`, `i32`, `i64` | Parsed with `std.fmt.parseInt` |
+| `bool` | `"true"`, `"1"`, `"yes"` = true; `"false"`, `"0"`, `"no"` = false |
+| Enums with `fromString` | Calls `T.fromString(val)` |
+| Other enums | Uses `std.meta.stringToEnum` |
+| Nested structs | Skipped (not merged) |
+
+If a value cannot be parsed, the default from the base config is kept.
+
+### One-call convenience: configInit
+
+The `configInit` function combines `Env.init` and `mergeWithEnv` into a single call:
+
+```zig
+const zzz = @import("zzz");
+
+var result = try zzz.configInit(AppConfig, defaults, allocator, .{
+    .environment = "prod",
+});
+defer result.env.deinit();
+
+const config = result.config;
+// Use config.host, config.port, etc.
+```
+
+## Environment-specific files
+
+<Steps>
+1. **Create a base `.env` file** with shared defaults:
+
+   ```bash
+   # .env
+   HOST=127.0.0.1
+   PORT=4000
+   LOG_LEVEL=debug
+   ```
+
+2. **Create environment overlays** for each target:
+
+   ```bash
+   # .env.prod
+   HOST=0.0.0.0
+   PORT=8080
+   LOG_LEVEL=warn
+   DATABASE_URL=postgres://deploy:secret@db.internal:5432/myapp
+   ```
+
+   ```bash
+   # .env.staging
+   HOST=0.0.0.0
+   PORT=8080
+   LOG_LEVEL=info
+   DATABASE_URL=postgres://staging@db.staging:5432/myapp_staging
+   ```
+
+   ```bash
+   # .env.testing
+   DATABASE_URL=sqlite::memory:
+   LOG_LEVEL=warn
+   ```
+
+3. **Load the correct overlay** by passing the environment name:
+
+   ```zig
+   var result = try zzz.configInit(AppConfig, defaults, allocator, .{
+       .environment = "prod", // loads .env then .env.prod
+   });
+   ```
+</Steps>
+
+## Secrets management
+
+### Sensitive key masking
+
+The `Env` struct provides a `maskSensitive` method that returns `"***"` for keys that appear to contain secrets. This is useful for logging configuration at startup without exposing credentials:
+
+```zig
+var env = try Env.init(allocator, .{});
+defer env.deinit();
+
+for (env.entries.items) |entry| {
+    const display_value = env.maskSensitive(entry.key, entry.value);
+    std.log.info("{s} = {s}", .{ entry.key, display_value });
+}
+// Output:
+//   HOST = 0.0.0.0
+//   PORT = 8080
+//   DATABASE_URL = ***
+//   SECRET_KEY_BASE = ***
+//   API_TOKEN = ***
+```
+
+Keys are considered sensitive (case-insensitive) if they contain any of: `SECRET`, `PASSWORD`, `TOKEN`, `KEY`, `DATABASE_URL`, `PRIVATE`.
+
+### Best practices
+
+<Tabs>
+<TabItem label="Do">
+- Store secrets in environment variables or `.env.prod` (never committed to version control)
+- Add `.env.prod` and `.env.staging` to `.gitignore`
+- Use `env.require()` for secrets so the application fails fast if they are missing
+- Use `maskSensitive` when logging configuration values
+- Rotate secrets regularly and use different values per environment
+</TabItem>
+<TabItem label="Don't">
+- Hardcode secrets in source code
+- Commit `.env.prod` or files containing real credentials
+- Log raw secret values
+- Share secrets between environments
+- Use the same database credentials for dev and prod
+</TabItem>
+</Tabs>
+
+### Example .gitignore entries
+
+```gitignore
+# Environment files with secrets
+.env.prod
+.env.staging
+.env.local
+
+# Keep these in version control as documentation
+# .env           (base defaults, no secrets)
+# .env.testing   (test config, no secrets)
+```
+
+## Database URL parsing
+
+zzz includes a `DatabaseUrl` parser for common database URL formats. It is zero-allocation -- all returned slices point into the original input string.
+
+```zig
+const zzz = @import("zzz");
+
+const db = try zzz.DatabaseUrl.parse("postgres://alice:s3cret@db.example.com:5433/myapp");
+// db.scheme   == .postgres
+// db.user     == "alice"
+// db.password == "s3cret"
+// db.host     == "db.example.com"
+// db.port     == 5433
+// db.database == "myapp"
+
+// Generate a libpq connection string
+var buf: [256]u8 = undefined;
+const conninfo = db.toConninfo(&buf).?;
+// "host=db.example.com dbname=myapp user=alice password=s3cret port=5433"
+```
+
+**Supported URL formats:**
+
+| Format | Scheme |
+|--------|--------|
+| `postgres://user:pass@host:port/dbname` | `.postgres` |
+| `postgresql://user@host/dbname` | `.postgres` |
+| `sqlite:path/to/db.sqlite` | `.sqlite` |
+| `path/to/db.sqlite` (bare filename) | `.sqlite` |
+
+## Next steps
+
+- [Deployment Overview](/deployment/overview/) -- production build, checklist, and deployment strategies
+- [Docker](/deployment/docker/) -- containerize your application with proper env var handling
+- [Configuration](/getting-started/configuration/) -- build-time configuration and project setup

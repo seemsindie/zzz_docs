@@ -1,0 +1,364 @@
+---
+title: "HTTP Test Client"
+description: "Test HTTP endpoints with the built-in test client, request builder, and response assertions."
+---
+
+import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
+
+The HTTP test client lets you send requests through your router and make assertions on responses without starting a server. It handles cookies, redirects, and content-type headers automatically.
+
+## Creating a test client
+
+`TestClient` is generic over your App type (the value returned by `Router.define()`). Initialize it with an allocator and defer `deinit()`:
+
+```zig
+const std = @import("std");
+const zzz = @import("zzz");
+
+const App = Router.define(.{ .routes = &.{ /* ... */ } });
+
+test "example" {
+    var client = zzz.testing.TestClient(App).init(std.testing.allocator);
+    defer client.deinit();
+
+    const resp = try client.get("/");
+    try resp.expectOk();
+}
+```
+
+## Simple request methods
+
+The client provides convenience methods for common HTTP verbs:
+
+| Method | Signature | Content-Type |
+|---|---|---|
+| `get` | `get(path) !TestResponse` | none |
+| `post` | `post(path, body) !TestResponse` | none |
+| `put` | `put(path, body) !TestResponse` | none |
+| `patch` | `patch(path, body) !TestResponse` | none |
+| `delete` | `delete(path) !TestResponse` | none |
+| `postJson` | `postJson(path, json_body) !TestResponse` | `application/json` |
+| `putJson` | `putJson(path, json_body) !TestResponse` | `application/json` |
+| `patchJson` | `patchJson(path, json_body) !TestResponse` | `application/json` |
+| `postForm` | `postForm(path, form_body) !TestResponse` | `application/x-www-form-urlencoded` |
+
+```zig
+test "CRUD operations" {
+    var client = zzz.testing.TestClient(App).init(std.testing.allocator);
+    defer client.deinit();
+
+    // Create
+    const create_resp = try client.postJson("/api/items", "{\"name\":\"widget\"}");
+    try create_resp.expectCreated();
+
+    // Read
+    const get_resp = try client.get("/api/items/1");
+    try get_resp.expectOk();
+
+    // Update
+    const put_resp = try client.putJson("/api/items/1", "{\"name\":\"gadget\"}");
+    try put_resp.expectOk();
+
+    // Delete
+    const del_resp = try client.delete("/api/items/1");
+    try del_resp.expectNoContent();
+}
+```
+
+## Request builder
+
+For requests that need custom headers, query strings, or multipart bodies, use the chainable `RequestBuilder`:
+
+```zig
+test "request with custom headers and query" {
+    var client = zzz.testing.TestClient(App).init(std.testing.allocator);
+    defer client.deinit();
+
+    var builder = client.request(.POST, "/api/upload");
+    const resp = try builder
+        .header("X-Request-Id", "test-123")
+        .header("Authorization", "Bearer tok_abc")
+        .query("format=json&verbose=true")
+        .jsonBody("{\"data\":\"value\"}")
+        .send();
+
+    try resp.expectOk();
+}
+```
+
+### Builder methods
+
+| Method | Description |
+|---|---|
+| `.header(name, value)` | Add a custom header (up to 8 per request) |
+| `.jsonBody(json)` | Set body with `application/json` content type |
+| `.formBody(form)` | Set body with `application/x-www-form-urlencoded` content type |
+| `.textBody(text)` | Set body with `text/plain` content type |
+| `.multipartBody(allocator, parts)` | Build a `multipart/form-data` body from parts |
+| `.query(qs)` | Set the query string (without the leading `?`) |
+| `.send()` | Dispatch the request and return a `TestResponse` |
+
+### Multipart file uploads
+
+Use `MultipartPart` to build multipart/form-data requests for file upload testing:
+
+```zig
+test "file upload" {
+    var client = zzz.testing.TestClient(App).init(std.testing.allocator);
+    defer client.deinit();
+
+    var builder = client.request(.POST, "/api/upload");
+    const resp = try builder.multipartBody(std.testing.allocator, &.{
+        .{ .name = "description", .value = "Profile photo" },
+        .{
+            .name = "file",
+            .filename = "photo.jpg",
+            .content_type = "image/jpeg",
+            .data = "FAKE_IMAGE_DATA",
+        },
+    }).send();
+
+    try resp.expectOk();
+}
+```
+
+The `MultipartPart` struct fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | `[]const u8` | Form field name (required) |
+| `value` | `?[]const u8` | Text value for simple fields |
+| `filename` | `?[]const u8` | Filename for file parts |
+| `content_type` | `?[]const u8` | MIME type for file parts |
+| `data` | `?[]const u8` | Raw data for file parts (takes precedence over `value`) |
+
+## Response assertions
+
+`TestResponse` provides assertion methods that use `std.testing` internally and return errors on failure.
+
+### Status assertions
+
+```zig
+try resp.expectStatus(.ok);           // Any status code
+try resp.expectOk();                  // 200
+try resp.expectCreated();             // 201
+try resp.expectNoContent();           // 204
+try resp.expectBadRequest();          // 400
+try resp.expectUnauthorized();        // 401
+try resp.expectForbidden();           // 403
+try resp.expectNotFound();            // 404
+```
+
+### Body assertions
+
+```zig
+try resp.expectBody("exact match");              // Exact body match
+try resp.expectBodyContains("partial");           // Substring match
+try resp.expectEmptyBody();                       // Body is empty or null
+```
+
+### Header assertions
+
+```zig
+try resp.expectHeader("Content-Type", "application/json");   // Exact header value
+try resp.expectHeaderContains("Content-Type", "json");        // Header contains substring
+try resp.expectHeaderExists("X-Request-Id");                  // Header is present
+```
+
+### JSON assertions
+
+```zig
+// Check that body contains "name":"alice" (handles optional space after colon)
+try resp.expectJson("name", "alice");
+
+// Check that body contains an arbitrary substring (useful for JSON fragments)
+try resp.expectJsonContains("\"status\":\"active\"");
+```
+
+### Cookie assertions
+
+```zig
+try resp.expectCookie("session");                    // Set-Cookie header exists for name
+try resp.expectCookieValue("session", "abc123");     // Set-Cookie has specific value
+```
+
+### Redirect assertions
+
+When `follow_redirects` is disabled, you can assert on redirect responses:
+
+```zig
+test "redirect response" {
+    var client = zzz.testing.TestClient(App).init(std.testing.allocator);
+    defer client.deinit();
+    client.follow_redirects = false;
+
+    const resp = try client.get("/old-path");
+    try resp.expectRedirect("/new-path");   // Asserts 3xx status and Location header
+}
+```
+
+## Default headers
+
+Set headers that are included in every request. This is useful for authentication tokens or API keys:
+
+```zig
+test "authenticated requests" {
+    var client = zzz.testing.TestClient(App).init(std.testing.allocator);
+    defer client.deinit();
+    client.setDefaultHeader("Authorization", "Bearer tok_secret");
+
+    // Both requests include the Authorization header
+    const resp1 = try client.get("/api/me");
+    try resp1.expectOk();
+
+    const resp2 = try client.get("/api/settings");
+    try resp2.expectOk();
+}
+```
+
+You can set up to 8 default headers. Setting a header with the same name replaces the previous value.
+
+## Cookie persistence
+
+The test client includes a built-in `CookieJar` that automatically:
+
+- Captures `Set-Cookie` headers from responses
+- Sends matching cookies back on subsequent requests
+- Respects cookie `Path` attributes
+- Handles cookie deletion via `Max-Age=0`
+
+```zig
+test "cookie-based session" {
+    var client = zzz.testing.TestClient(App).init(std.testing.allocator);
+    defer client.deinit();
+
+    // Login sets a cookie
+    _ = try client.post("/login", "user=alice&pass=secret");
+
+    // Subsequent requests automatically include the session cookie
+    const resp = try client.get("/profile");
+    try resp.expectOk();
+    try resp.expectBody("alice");
+}
+```
+
+## Redirect following
+
+By default, the client follows redirects (301, 302, 303, 307, 308) up to 5 hops. A 303 redirect changes the method to GET and drops the body, per the HTTP specification.
+
+<Tabs>
+<TabItem label="Follow redirects (default)">
+
+```zig
+test "follows redirect" {
+    var client = zzz.testing.TestClient(App).init(std.testing.allocator);
+    defer client.deinit();
+    // client.follow_redirects is true by default
+
+    const resp = try client.get("/old");
+    // resp contains the final destination response
+    try resp.expectOk();
+    try resp.expectBody("new page");
+}
+```
+
+</TabItem>
+<TabItem label="Disable redirect following">
+
+```zig
+test "inspect redirect" {
+    var client = zzz.testing.TestClient(App).init(std.testing.allocator);
+    defer client.deinit();
+    client.follow_redirects = false;
+
+    const resp = try client.get("/old");
+    try resp.expectRedirect("/new");
+}
+```
+
+</TabItem>
+</Tabs>
+
+You can also change the maximum redirect depth:
+
+```zig
+client.max_redirects = 10;
+```
+
+## Resetting client state
+
+Call `reset()` to clear all cookies, tracked responses, and free arena memory. This is useful when testing multiple independent flows in a single test:
+
+```zig
+test "reset between flows" {
+    var client = zzz.testing.TestClient(App).init(std.testing.allocator);
+    defer client.deinit();
+
+    // First flow
+    _ = try client.post("/login", null);
+    const resp1 = try client.get("/profile");
+    try resp1.expectOk();
+
+    // Reset -- clears cookies and responses
+    client.reset();
+
+    // Second flow starts fresh
+    const resp2 = try client.get("/profile");
+    try resp2.expectUnauthorized();
+}
+```
+
+## Testing with middleware
+
+Since the test client calls your router's handler directly, all middleware in your pipeline runs during tests. There is no special setup needed:
+
+```zig
+const App = Router.define(.{
+    .middleware = &.{authMiddleware},
+    .routes = &.{
+        Router.get("/protected", struct {
+            fn handle(ctx: *Context) !void {
+                ctx.text(.ok, "secret data");
+            }
+        }.handle),
+    },
+});
+
+test "middleware runs in tests" {
+    var client = zzz.testing.TestClient(App).init(std.testing.allocator);
+    defer client.deinit();
+
+    // Without auth header, middleware rejects the request
+    const resp1 = try client.get("/protected");
+    try resp1.expectUnauthorized();
+
+    // With auth header, request passes through middleware
+    client.setDefaultHeader("Authorization", "Bearer valid_token");
+    const resp2 = try client.get("/protected");
+    try resp2.expectOk();
+    try resp2.expectBody("secret data");
+}
+```
+
+## Testing JSON endpoints
+
+A common pattern for testing API endpoints that accept and return JSON:
+
+```zig
+test "JSON API endpoint" {
+    var client = zzz.testing.TestClient(App).init(std.testing.allocator);
+    defer client.deinit();
+
+    const resp = try client.postJson("/api/users", "{\"name\":\"alice\",\"email\":\"a@example.com\"}");
+    try resp.expectCreated();
+    try resp.expectHeaderContains("Content-Type", "application/json");
+    try resp.expectJson("name", "alice");
+    try resp.expectJsonContains("\"email\"");
+}
+```
+
+## Next steps
+
+- [Testing Overview](/testing/overview/) -- introduction to the full testing toolkit.
+- [WebSocket Testing](/testing/websocket-testing/) -- testing channels with `TestChannel`.
+- [Database Sandbox](/testing/database-sandbox/) -- transaction-based test isolation, factories, and seeding.

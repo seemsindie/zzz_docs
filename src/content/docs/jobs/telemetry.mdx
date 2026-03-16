@@ -1,0 +1,236 @@
+---
+title: "Job Telemetry"
+description: "Monitor zzz_jobs with event-driven telemetry hooks for job lifecycle events including enqueue, start, completion, failure, and discard."
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+zzz_jobs provides an event-driven telemetry system that lets you observe job lifecycle events in real time. Use it to log activity, collect metrics, send alerts, or build dashboards.
+
+## Architecture
+
+The telemetry system consists of three parts:
+
+| Component | Description |
+|---|---|
+| `Telemetry` | A registry of handler functions. Attach up to 8 handlers. Thread-safe via mutex. |
+| `Event` | A tagged union representing a lifecycle event. Carries the relevant `Job` or `JobResult`. |
+| `HandlerFn` | A function pointer: `*const fn (Event) void`. Called synchronously on the worker thread. |
+
+## Events
+
+The `Event` union covers the full job lifecycle:
+
+```zig
+pub const Event = union(enum) {
+    job_enqueued: Job,
+    job_started: Job,
+    job_completed: JobResult,
+    job_failed: JobResult,
+    job_discarded: JobResult,
+    queue_paused: []const u8,
+    queue_resumed: []const u8,
+};
+```
+
+| Event | Emitted when | Payload |
+|---|---|---|
+| `job_enqueued` | A job is added to the store via `supervisor.enqueue` | `Job` -- the newly created job |
+| `job_started` | A worker thread begins executing a job | `Job` -- the claimed job |
+| `job_completed` | A worker handler returns successfully | `JobResult` -- job, duration, no error |
+| `job_failed` | A handler returns an error but retries remain | `JobResult` -- job, duration, error message |
+| `job_discarded` | A handler returns an error and max attempts is reached | `JobResult` -- job, duration, error message |
+| `queue_paused` | `supervisor.pauseQueue` is called | `[]const u8` -- the queue name |
+| `queue_resumed` | `supervisor.resumeQueue` is called | `[]const u8` -- the queue name |
+
+### JobResult
+
+The `job_completed`, `job_failed`, and `job_discarded` events carry a `JobResult`:
+
+```zig
+pub const JobResult = struct {
+    job: Job,
+    duration_ms: i64,
+    error_msg: ?[]const u8,
+};
+```
+
+| Field | Description |
+|---|---|
+| `job` | The full job record at the time of completion/failure |
+| `duration_ms` | Wall-clock execution time of the handler in milliseconds |
+| `error_msg` | The error name string on failure, `null` on success |
+
+## Setting up telemetry
+
+<Steps>
+
+1. **Create a Telemetry instance**
+
+    ```zig
+    const zzz_jobs = @import("zzz_jobs");
+
+    var telemetry = zzz_jobs.Telemetry{};
+    ```
+
+2. **Define a handler function**
+
+    ```zig
+    const std = @import("std");
+    const log = std.log.scoped(.jobs);
+
+    fn telemetryHandler(event: zzz_jobs.Event) void {
+        switch (event) {
+            .job_enqueued => |job| {
+                log.info("Enqueued: {s}({s})", .{ job.worker, job.args });
+            },
+            .job_started => |job| {
+                log.info("Started: {s} (attempt {d})", .{ job.worker, job.attempt });
+            },
+            .job_completed => |result| {
+                log.info("Completed: {s} in {d}ms", .{ result.job.worker, result.duration_ms });
+            },
+            .job_failed => |result| {
+                log.warn("Failed: {s} - {s} (attempt {d}/{d})", .{
+                    result.job.worker,
+                    result.error_msg orelse "unknown",
+                    result.job.attempt,
+                    result.job.max_attempts,
+                });
+            },
+            .job_discarded => |result| {
+                log.err("Discarded: {s} - {s}", .{
+                    result.job.worker,
+                    result.error_msg orelse "unknown",
+                });
+            },
+            .queue_paused => |name| {
+                log.info("Queue paused: {s}", .{name});
+            },
+            .queue_resumed => |name| {
+                log.info("Queue resumed: {s}", .{name});
+            },
+        }
+    }
+    ```
+
+3. **Attach the handler and wire it to the supervisor**
+
+    ```zig
+    telemetry.attach(&telemetryHandler);
+    supervisor.telemetry = &telemetry;
+    ```
+
+</Steps>
+
+The handler is called synchronously on the thread that triggered the event. Keep handlers fast to avoid blocking job processing. For expensive operations (HTTP requests, database writes), consider buffering events and processing them asynchronously.
+
+## Multiple handlers
+
+You can attach up to 8 handlers. All attached handlers are called for every event, in the order they were attached:
+
+```zig
+var telemetry = zzz_jobs.Telemetry{};
+telemetry.attach(&loggingHandler);
+telemetry.attach(&metricsHandler);
+telemetry.attach(&alertingHandler);
+supervisor.telemetry = &telemetry;
+```
+
+## Example: tracking job statistics
+
+A practical example that maintains in-memory counters:
+
+```zig
+const std = @import("std");
+const zzz_jobs = @import("zzz_jobs");
+
+var stats = struct {
+    enqueued: usize = 0,
+    completed: usize = 0,
+    failed: usize = 0,
+    discarded: usize = 0,
+    total_duration_ms: i64 = 0,
+}{};
+
+fn statsHandler(event: zzz_jobs.Event) void {
+    switch (event) {
+        .job_enqueued => stats.enqueued += 1,
+        .job_completed => |r| {
+            stats.completed += 1;
+            stats.total_duration_ms += r.duration_ms;
+        },
+        .job_failed => stats.failed += 1,
+        .job_discarded => stats.discarded += 1,
+        .job_started, .queue_paused, .queue_resumed => {},
+    }
+}
+```
+
+## Example: real-world usage from zzz_example_app
+
+The example application uses telemetry to build a live activity log:
+
+```zig
+fn jobsTelemetryHandler(event: zzz_jobs.Event) void {
+    switch (event) {
+        .job_enqueued => |j| {
+            var buf: [128]u8 = undefined;
+            const msg = std.fmt.bufPrint(&buf, "Enqueued: {s}({s})", .{
+                j.worker, j.args,
+            }) catch "Enqueued job";
+            addJobLog(msg);
+        },
+        .job_completed => |r| {
+            var buf: [128]u8 = undefined;
+            const msg = std.fmt.bufPrint(&buf, "Completed: {s} in {d}ms", .{
+                r.job.worker, r.duration_ms,
+            }) catch "Completed job";
+            addJobLog(msg);
+        },
+        .job_failed => |r| {
+            var buf: [128]u8 = undefined;
+            const err = r.error_msg orelse "unknown";
+            const msg = std.fmt.bufPrint(&buf, "Failed: {s} - {s} (attempt {d})", .{
+                r.job.worker, err, r.job.attempt,
+            }) catch "Failed job";
+            addJobLog(msg);
+        },
+        .job_discarded => |r| {
+            var buf: [128]u8 = undefined;
+            const err = r.error_msg orelse "unknown";
+            const msg = std.fmt.bufPrint(&buf, "Discarded: {s} - {s}", .{
+                r.job.worker, err,
+            }) catch "Discarded job";
+            addJobLog(msg);
+        },
+        .job_started, .queue_paused, .queue_resumed => {},
+    }
+}
+
+var telemetry = zzz_jobs.Telemetry{};
+telemetry.attach(&jobsTelemetryHandler);
+supervisor.telemetry = &telemetry;
+```
+
+## Thread safety
+
+The `Telemetry` struct uses a mutex to protect handler registration and event emission. This means:
+
+- `attach` can be called from any thread at any time.
+- Handlers are called under the mutex, so they execute one at a time even when multiple worker threads emit events concurrently.
+- Handlers must not call `attach` or `emit` on the same `Telemetry` instance (this would deadlock).
+
+## Limits
+
+| Limit | Value |
+|---|---|
+| Maximum handlers | 8 |
+
+If you attempt to attach more than 8 handlers, the additional handlers are silently ignored.
+
+## Next steps
+
+- [Workers and supervisors](/jobs/workers/) -- understanding the execution lifecycle that generates these events
+- [Retry strategies](/jobs/retry-strategies/) -- how `job_failed` vs `job_discarded` events relate to retry configuration
+- [Background jobs overview](/jobs/overview/) -- the full feature set

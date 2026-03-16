@@ -1,0 +1,224 @@
+---
+title: "Bearer and Basic Auth"
+description: "Configure bearer token and HTTP basic authentication middleware in zzz to protect routes and extract credentials."
+---
+
+import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
+
+zzz provides two middleware functions for the most common HTTP authentication schemes: bearer tokens and basic auth. Both extract credentials from the `Authorization` header and store them in the context assigns map for downstream handlers to use.
+
+## Bearer token authentication
+
+The `bearerAuth` middleware parses `Authorization: Bearer <token>` headers and places the raw token string into assigns.
+
+### Configuration
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `assign_key` | `[]const u8` | `"bearer_token"` | Key used to store the token in `ctx.assigns` |
+| `required` | `bool` | `false` | When `true`, returns 401 if no valid bearer token is present |
+
+### Basic usage
+
+```zig
+const zzz = @import("zzz");
+
+const routes = zzz.Router.scope("/api", &.{
+    zzz.bearerAuth(.{ .required = true }),
+}, &.{
+    zzz.Router.get("/profile", profileHandler),
+});
+
+fn profileHandler(ctx: *zzz.Context) !void {
+    const token = ctx.getAssign("bearer_token").?;
+    // Validate `token` against your database or token store
+    var buf: [256]u8 = undefined;
+    const body = std.fmt.bufPrint(&buf,
+        \\{{"auth":"bearer","token":"{s}"}}
+    , .{token}) catch return;
+    ctx.json(.ok, body);
+}
+```
+
+Test with curl:
+
+```bash
+curl -H "Authorization: Bearer my-secret-token" http://127.0.0.1:9000/api/profile
+```
+
+### Optional bearer auth
+
+When `required = false` (the default), the middleware extracts the token if present but always calls `ctx.next()`. This is useful for routes that behave differently for authenticated vs anonymous users:
+
+```zig
+const routes = zzz.Router.scope("/", &.{
+    zzz.bearerAuth(.{ .required = false }),
+}, &.{
+    zzz.Router.get("/feed", feedHandler),
+});
+
+fn feedHandler(ctx: *zzz.Context) !void {
+    if (ctx.getAssign("bearer_token")) |_token| {
+        // Show personalized feed
+        ctx.json(.ok, "{\"feed\":\"personalized\"}");
+    } else {
+        // Show public feed
+        ctx.json(.ok, "{\"feed\":\"public\"}");
+    }
+}
+```
+
+### Custom assign key
+
+If you need to avoid key collisions or prefer a different name:
+
+```zig
+zzz.bearerAuth(.{
+    .assign_key = "api_token",
+    .required = true,
+})
+```
+
+Then read it with `ctx.getAssign("api_token")`.
+
+## Basic authentication
+
+The `basicAuth` middleware decodes `Authorization: Basic <base64>` headers, extracts the username and password, and stores them separately in assigns.
+
+### Configuration
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `username_key` | `[]const u8` | `"auth_username"` | Key for the username in `ctx.assigns` |
+| `password_key` | `[]const u8` | `"auth_password"` | Key for the password in `ctx.assigns` |
+| `required` | `bool` | `false` | When `true`, returns 401 with `WWW-Authenticate` if credentials are missing |
+| `realm` | `[]const u8` | `"Restricted"` | The realm string sent in the `WWW-Authenticate` header |
+
+### Basic usage
+
+```zig
+const zzz = @import("zzz");
+
+const routes = zzz.Router.scope("/admin", &.{
+    zzz.basicAuth(.{ .required = true, .realm = "Admin Panel" }),
+}, &.{
+    zzz.Router.get("/dashboard", dashboardHandler),
+});
+
+fn dashboardHandler(ctx: *zzz.Context) !void {
+    const username = ctx.getAssign("auth_username").?;
+    const password = ctx.getAssign("auth_password").?;
+
+    // Validate against your user store
+    if (!std.mem.eql(u8, username, "admin") or !std.mem.eql(u8, password, "secret")) {
+        ctx.respond(.forbidden, "text/plain; charset=utf-8", "403 Forbidden");
+        return;
+    }
+
+    var buf: [256]u8 = undefined;
+    const body = std.fmt.bufPrint(&buf,
+        \\{{"user":"{s}","role":"admin"}}
+    , .{username}) catch return;
+    ctx.json(.ok, body);
+}
+```
+
+Test with curl:
+
+```bash
+curl -u admin:secret http://127.0.0.1:9000/admin/dashboard
+```
+
+When credentials are missing and `required = true`, the browser will display a native login dialog because the response includes:
+
+```
+HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Basic realm="Admin Panel"
+```
+
+### Custom credential validation
+
+<Steps>
+
+1. Apply `basicAuth` middleware with `required = true` to ensure credentials are present.
+
+2. In your handler, read the username and password from assigns.
+
+3. Validate the credentials against your data store (database, config file, environment variable, etc.).
+
+4. Return a 403 or appropriate error if validation fails.
+
+</Steps>
+
+```zig
+fn validateCredentials(ctx: *zzz.Context) !void {
+    const username = ctx.getAssign("auth_username") orelse {
+        ctx.respond(.unauthorized, "text/plain; charset=utf-8", "401 Unauthorized");
+        return;
+    };
+    const password = ctx.getAssign("auth_password") orelse {
+        ctx.respond(.unauthorized, "text/plain; charset=utf-8", "401 Unauthorized");
+        return;
+    };
+
+    // Example: check against a hardcoded list (use a database in production)
+    const valid = std.mem.eql(u8, username, "alice") and std.mem.eql(u8, password, "correct-password");
+
+    if (!valid) {
+        ctx.respond(.forbidden, "text/plain; charset=utf-8", "Invalid credentials");
+        return;
+    }
+
+    ctx.json(.ok, "{\"status\":\"welcome\"}");
+}
+```
+
+## Protecting routes with scopes
+
+Both bearer and basic auth are typically applied to specific route groups using `Router.scope` rather than as global middleware:
+
+<Tabs>
+<TabItem label="Bearer scope">
+```zig
+const api_routes = zzz.Router.scope("/api/v1", &.{
+    zzz.bearerAuth(.{ .required = true }),
+}, &.{
+    zzz.Router.get("/users", listUsers),
+    zzz.Router.get("/users/:id", getUser),
+    zzz.Router.post("/users", createUser),
+});
+```
+</TabItem>
+<TabItem label="Basic scope">
+```zig
+const admin_routes = zzz.Router.scope("/admin", &.{
+    zzz.basicAuth(.{ .required = true, .realm = "Admin" }),
+}, &.{
+    zzz.Router.get("/", adminDashboard),
+    zzz.Router.get("/users", adminUsers),
+});
+```
+</TabItem>
+</Tabs>
+
+## Combining auth strategies
+
+You can use different auth strategies on different scopes within the same application:
+
+```zig
+const routes =
+    // API uses bearer tokens
+    zzz.Router.scope("/api", &.{zzz.bearerAuth(.{ .required = true })}, &.{
+        zzz.Router.get("/data", apiDataHandler),
+    })
+    // Admin uses basic auth
+    ++ zzz.Router.scope("/admin", &.{zzz.basicAuth(.{ .required = true })}, &.{
+        zzz.Router.get("/", adminHandler),
+    });
+```
+
+## Next steps
+
+- [JWT Authentication](/authentication/jwt/) -- verify signed tokens and extract claims
+- [Sessions and CSRF](/authentication/sessions-and-csrf/) -- cookie-based sessions and CSRF protection
+- [Auth Overview](/authentication/overview/) -- how all auth middleware fits together

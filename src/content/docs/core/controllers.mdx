@@ -1,0 +1,242 @@
+---
+title: "Controllers"
+description: "Organize route handlers into controller modules with shared prefixes and middleware."
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+Controllers in zzz are not a special abstraction -- they are regular Zig modules that export handler functions and a `routes` slice. The `Controller.define` helper adds a shared prefix, Swagger tag, and middleware to a group of routes.
+
+## The controller pattern
+
+A controller is a Zig file that exports handler functions and a route definition:
+
+```zig
+// src/controllers/users.zig
+const zzz = @import("zzz");
+
+pub fn index(ctx: *zzz.Context) !void {
+    ctx.json(.ok, "{\"users\": []}");
+}
+
+pub fn show(ctx: *zzz.Context) !void {
+    const id = ctx.param("id") orelse "0";
+    _ = id;
+    ctx.json(.ok, "{\"id\": 1, \"name\": \"Alice\"}");
+}
+
+pub fn create(ctx: *zzz.Context) !void {
+    ctx.json(.created, "{\"created\": true}");
+}
+```
+
+## Using Controller.define
+
+The `Controller.define` function groups routes under a shared prefix, applies middleware, and auto-tags Swagger documentation:
+
+```zig
+// src/controllers/api.zig
+const zzz = @import("zzz");
+
+pub const ctrl = zzz.Controller.define(.{
+    .prefix = "/api",
+    .tag = "API",
+    .middleware = &.{zzz.bearerAuth(.{ .required = true })},
+}, &.{
+    zzz.Router.get("/status", apiStatus)
+        .doc(.{ .summary = "Health check" }),
+    zzz.Router.get("/users", listUsers)
+        .doc(.{ .summary = "List users", .tag = "Users" }),
+    zzz.Router.get("/users/:id", getUser)
+        .doc(.{ .summary = "Get user by ID", .tag = "Users" }),
+});
+
+fn apiStatus(ctx: *zzz.Context) !void {
+    ctx.json(.ok, "{\"status\": \"ok\"}");
+}
+
+fn listUsers(ctx: *zzz.Context) !void {
+    ctx.json(.ok, "[]");
+}
+
+fn getUser(ctx: *zzz.Context) !void {
+    const id = ctx.param("id") orelse "0";
+    _ = id;
+    ctx.json(.ok, "{}");
+}
+```
+
+### ControllerConfig options
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `prefix` | `[]const u8` | `""` | URL prefix prepended to all routes |
+| `tag` | `[]const u8` | `""` | Swagger tag auto-applied to documented routes |
+| `middleware` | `[]const HandlerFn` | `&.{}` | Middleware applied to all routes in this controller |
+
+The prefix is prepended to each route pattern at compile time. So a route defined as `Router.get("/users", listUsers)` inside a controller with `.prefix = "/api"` becomes `GET /api/users`.
+
+If a route has its own `.doc()` with a specific tag, that tag takes precedence over the controller-level tag.
+
+## Connecting controllers to the router
+
+Import the controller module and concatenate its `routes` into your main route list:
+
+```zig
+// src/main.zig
+const api = @import("controllers/api.zig");
+const home = @import("controllers/home.zig");
+
+const App = zzz.Router.define(.{
+    .middleware = &.{
+        zzz.errorHandler(.{ .show_details = true }),
+        zzz.logger,
+        zzz.bodyParser,
+    },
+    .routes = home.ctrl.routes
+        ++ api.ctrl.routes
+        ++ &.{
+            zzz.Router.get("/health", healthCheck),
+        },
+});
+```
+
+Since `ctrl.routes` is a `[]const RouteDef`, you use `++` (Zig's array concatenation) to combine multiple controllers and standalone routes.
+
+## Using Router.resource in controllers
+
+Controllers can export resource routes alongside or instead of `Controller.define`:
+
+```zig
+// src/controllers/posts.zig
+const zzz = @import("zzz");
+
+pub const routes = zzz.Router.resource("/api/posts", .{
+    .index = listPosts,
+    .show = getPost,
+    .create = createPost,
+    .update = updatePost,
+    .delete_handler = deletePost,
+});
+
+fn listPosts(ctx: *zzz.Context) !void {
+    ctx.json(.ok, "[]");
+}
+
+fn getPost(ctx: *zzz.Context) !void {
+    ctx.json(.ok, "{}");
+}
+
+fn createPost(ctx: *zzz.Context) !void {
+    ctx.json(.created, "{}");
+}
+
+fn updatePost(ctx: *zzz.Context) !void {
+    ctx.json(.ok, "{}");
+}
+
+fn deletePost(ctx: *zzz.Context) !void {
+    ctx.json(.ok, "{}");
+}
+```
+
+Then in `main.zig`:
+
+```zig
+.routes = posts.routes ++ home.ctrl.routes,
+```
+
+## Generating controllers with the CLI
+
+The `zzz` CLI can scaffold a controller with CRUD handlers and resource routes:
+
+<Steps>
+1. **Generate the controller**
+
+   ```bash
+   zzz gen controller posts
+   ```
+
+2. **Review the generated file** at `src/controllers/posts.zig`. It includes `index`, `show`, `create`, `update`, and `delete_handler` functions, plus a `Router.resource` call.
+
+3. **Import and wire it** in `src/main.zig`:
+
+   ```zig
+   const posts = @import("controllers/posts.zig");
+
+   .routes = posts.routes ++ ...,
+   ```
+</Steps>
+
+The generated controller looks like this:
+
+```zig
+const std = @import("std");
+const zzz = @import("zzz");
+const Context = zzz.Context;
+const Router = zzz.Router;
+
+pub fn index(ctx: *Context) !void {
+    ctx.json(.ok, "{\"message\":\"Posts index\"}");
+}
+
+pub fn show(ctx: *Context) !void {
+    const id = ctx.param("id") orelse "unknown";
+    _ = id;
+    ctx.json(.ok, "{\"message\":\"Post show\"}");
+}
+
+pub fn create(ctx: *Context) !void {
+    ctx.json(.created, "{\"message\":\"Post created\"}");
+}
+
+pub fn update(ctx: *Context) !void {
+    ctx.json(.ok, "{\"message\":\"Post updated\"}");
+}
+
+pub fn delete_handler(ctx: *Context) !void {
+    ctx.json(.ok, "{\"message\":\"Post deleted\"}");
+}
+
+pub const routes = Router.resource("/posts", .{
+    .index = index,
+    .show = show,
+    .create = create,
+    .update = update,
+    .delete_handler = delete_handler,
+});
+```
+
+## Organizing a larger application
+
+A typical project structure groups controllers by domain:
+
+```
+src/
+  main.zig
+  controllers/
+    home.zig
+    api.zig
+    auth.zig
+    sessions.zig
+    htmx.zig
+    ws.zig
+```
+
+Each controller exports either `ctrl` (from `Controller.define`) or `routes` (a plain `[]const RouteDef`), and `main.zig` concatenates them all:
+
+```zig
+.routes = home.ctrl.routes
+    ++ api.ctrl.routes
+    ++ api.posts_resource
+    ++ auth.ctrl.routes
+    ++ sessions.ctrl.routes
+    ++ ws.ctrl.routes,
+```
+
+## Next steps
+
+- [Routing](/core/routing/) -- route definitions, scoping, and named routes
+- [Context](/core/context/) -- the request/response API
+- [Swagger / OpenAPI](/api/swagger-openapi/) -- document your controller routes with `.doc()`
+- [CLI Generators](/cli/generators/) -- scaffold controllers, models, and more

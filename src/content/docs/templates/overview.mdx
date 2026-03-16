@@ -1,0 +1,134 @@
+---
+title: "Templates Overview"
+description: "Introduction to zzz_template -- the comptime Mustache-like template engine for the zzz web framework, providing HTML-escaped variable interpolation, conditionals, loops, partials, pipes, and layout support."
+---
+
+import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
+
+`zzz_template` is a standalone, comptime template engine inspired by Mustache and Handlebars. Templates are parsed entirely at compile time, producing zero-allocation rendering code with automatic HTML escaping. At runtime, rendering walks a pre-built segment tree and writes into a single buffer.
+
+## Features
+
+- **Comptime parsing** -- templates are parsed during compilation with zero runtime parsing overhead
+- **Automatic HTML escaping** -- `{{var}}` escapes `&`, `<`, `>`, `"`, `'` by default
+- **Raw output** -- `{{{var}}}` bypasses escaping for trusted HTML
+- **Conditionals** -- `{{#if}}` / `{{else}}` / `{{/if}}` with bool, optional, and slice truthiness
+- **Loops** -- `{{#each items}}` iterates over slices
+- **Partials** -- `{{> name}}` inlines sub-templates at comptime with optional arguments
+- **Layouts** -- `{{{yield}}}` and named yields (`{{{yield_head}}}`) for layout wrapping
+- **Pipes** -- `{{value | upper | truncate:20}}` for chained value transformations
+- **Dot notation** -- `{{user.name}}` resolves nested struct fields
+- **Comments** -- `{{! ignored }}` produces no output
+- **Raw blocks** -- `{{{{raw}}}}...{{{{/raw}}}}` passes content through without processing
+- **Integer support** -- integer fields are automatically formatted as strings
+
+## Adding the dependency
+
+Add `zzz_template` to your `build.zig.zon`:
+
+```zig
+.dependencies = .{
+    .zzz_template = .{
+        .path = "../zzz_template",
+    },
+},
+```
+
+Then in your `build.zig`, add the module:
+
+```zig
+const zzz_template = b.dependency("zzz_template", .{
+    .target = target,
+    .optimize = optimize,
+});
+exe.root_module.addImport("zzz_template", zzz_template.module("zzz_template"));
+```
+
+If you are using the full `zzz` framework, `zzz_template` is already re-exported through the main `zzz` package. You can use `zzz.template()` and `zzz.templateWithPartials()` directly.
+
+## Basic usage
+
+<Steps>
+
+1. **Create a template file** with the `.html.zzz` extension:
+
+   ```html
+   <!-- src/templates/greeting.html.zzz -->
+   <h1>Hello, {{name}}!</h1>
+   <p>{{description}}</p>
+   ```
+
+2. **Compile the template** at comptime in your controller:
+
+   ```zig
+   const zzz = @import("zzz");
+
+   const GreetingTemplate = zzz.template(
+       @embedFile("../templates/greeting.html.zzz"),
+   );
+   ```
+
+3. **Render from a handler** by passing a data struct:
+
+   ```zig
+   fn greet(ctx: *zzz.Context) !void {
+       try ctx.render(GreetingTemplate, .ok, .{
+           .name = "World",
+           .description = "Welcome to zzz.",
+       });
+   }
+   ```
+
+</Steps>
+
+The `render` method renders the template with the provided data struct and sends the result as an `text/html` response with the given status code. Every field referenced in the template must be present in the data struct -- missing fields cause a compile error.
+
+## Template file conventions
+
+| Convention | Description |
+| --- | --- |
+| `.html.zzz` extension | Distinguishes template files from static HTML |
+| `src/templates/` directory | Standard location for page templates |
+| `src/templates/partials/` directory | Standard location for partial templates |
+| `src/templates/layout.html.zzz` | Application layout with `{{{yield}}}` placeholder |
+| `@embedFile` at comptime | Templates are embedded into the binary; no filesystem reads at runtime |
+
+## Rendering methods
+
+The `Context` object provides several rendering methods:
+
+| Method | Purpose |
+| --- | --- |
+| `ctx.render(Tmpl, status, data)` | Render a template directly |
+| `ctx.renderWithLayout(Layout, Content, status, data)` | Render content inside a layout |
+| `ctx.renderWithLayoutAndYields(Layout, Content, status, data, yields)` | Render with layout and named yield blocks |
+| `ctx.renderPartial(Tmpl, status, data)` | Render without layout wrapping (for fragments) |
+
+## Standalone usage
+
+`zzz_template` can be used outside of the zzz web framework as a standalone library:
+
+```zig
+const std = @import("std");
+const tmpl = @import("zzz_template");
+
+const Greeting = tmpl.template("Hello, {{name}}!");
+
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    const result = try Greeting.render(allocator, .{ .name = "World" });
+    defer allocator.free(result);
+
+    std.debug.print("{s}\n", .{result}); // Hello, World!
+}
+```
+
+## Next steps
+
+- [Template Syntax](/templates/syntax/) -- learn about variable interpolation, conditionals, loops, and comments
+- [Layouts and Partials](/templates/layouts-and-partials/) -- define reusable layouts and include partial templates
+- [Pipes and Helpers](/templates/pipes-and-helpers/) -- transform values with built-in and custom pipe filters
+- [htmx Integration](/templates/htmx/) -- use htmx with zzz for server-driven interactivity

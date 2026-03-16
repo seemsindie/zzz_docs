@@ -1,0 +1,93 @@
+---
+title: CLI Overview
+description: Install and use the zzz command-line tool for project scaffolding, code generation, migrations, and development.
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+The `zzz` CLI is the companion tool for the zzz web framework. It handles project scaffolding, code generation, database migrations, a development server with auto-reload, and utility commands for inspecting routes, running tests, and exporting OpenAPI specs.
+
+## Installation
+
+<Tabs>
+  <TabItem label="Shell installer">
+    The quickest way to install on macOS or Linux:
+
+    ```bash
+    curl -fsSL https://zzz.seemsindie.com/install.sh | sh
+    ```
+
+    To install a specific version:
+
+    ```bash
+    ZZZ_VERSION=v0.1.0 curl -fsSL https://zzz.seemsindie.com/install.sh | sh
+    ```
+  </TabItem>
+  <TabItem label="GitHub Releases">
+    Download a pre-built binary for your platform from the
+    [Releases page](https://github.com/seemsindie/zzz_cli/releases).
+
+    Binaries are available for:
+    - macOS (arm64, x86_64)
+    - Linux (x86_64, aarch64)
+  </TabItem>
+  <TabItem label="Build from source">
+    Clone the repository and build with Zig:
+
+    ```bash
+    git clone https://github.com/seemsindie/zzz_cli.git
+    cd zzz_cli
+    zig build
+    # Binary is at zig-out/bin/zzz
+    ```
+
+    Requires Zig 0.16.0-dev.2535+b5bd49460 or later.
+  </TabItem>
+</Tabs>
+
+## Available commands
+
+| Command | Alias | Description |
+|---------|-------|-------------|
+| `zzz new <name>` | | Create a new zzz project with full directory structure |
+| `zzz server` | `zzz s` | Start a development server with auto-reload |
+| `zzz gen controller <Name>` | | Generate a RESTful controller |
+| `zzz gen model <Name> [field:type ...]` | | Generate a database model and migration |
+| `zzz gen channel <Name>` | | Generate a WebSocket channel |
+| `zzz gen mailer <Name> [--template]` | | Generate an email mailer module |
+| `zzz migrate` | | Run pending database migrations |
+| `zzz migrate rollback` | | Roll back the last migration |
+| `zzz migrate status` | | Show current migration status |
+| `zzz routes` | | List all application routes |
+| `zzz swagger` | | Export the OpenAPI specification as JSON |
+| `zzz test` | | Run project tests via `zig build test` |
+| `zzz deps` | | List workspace dependencies |
+| `zzz version` | | Print the CLI version |
+
+## Quick-start workflow
+
+```bash
+zzz new blog
+cd blog
+zzz gen model Post title:string content:text published:boolean
+zzz gen controller Posts
+zzz gen channel Comments
+zzz migrate
+zzz server
+```
+
+After running these commands you will have a working project with a `Post` model, a RESTful `Posts` controller, a `Comments` WebSocket channel, and a development server listening on `http://127.0.0.1:4000`.
+
+## Project requirements
+
+The zzz CLI and generated projects require:
+
+- **Zig** 0.16.0-dev.2535+b5bd49460 or later
+- **zzz.zig** framework (pulled in automatically via `build.zig.zon`)
+
+## Next steps
+
+- [Create a new project](/cli/new-project) with `zzz new`
+- [Generate code](/cli/generators) with `zzz gen`
+- [Run migrations](/cli/migrations-cli) with `zzz migrate`
+- [Start the dev server](/cli/dev-server) with `zzz server`

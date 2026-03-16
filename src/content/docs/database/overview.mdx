@@ -1,0 +1,189 @@
+---
+title: "Database Overview"
+description: "Introduction to zzz_db -- the database layer for the zzz web framework, providing SQLite and PostgreSQL support with compile-time schemas, type-safe repositories, and composable query builders."
+---
+
+import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
+
+`zzz_db` is the database layer for the zzz web framework. It provides a unified API for SQLite and PostgreSQL with compile-time schema definitions, type-safe repository operations, a composable query builder, and connection pooling.
+
+## Features
+
+- **Dual backend** -- SQLite and PostgreSQL through the same API surface
+- **Compile-time schema** -- zero-cost struct-to-table mapping with automatic DDL generation
+- **Repository pattern** -- type-safe CRUD with `all`, `one`, `get`, `insert`, `update`, `delete`, `count`
+- **Query builder** -- composable fluent API with where clauses, joins, group by, aggregates, ordering, and pagination
+- **Connection pooling** -- thread-safe pool with configurable size and timeouts
+- **Transactions** -- with commit, rollback, and nested savepoints
+- **Changesets** -- field validation and change tracking for form submissions
+- **Dialect-aware SQL** -- `?` placeholders for SQLite, `$N` for PostgreSQL
+
+## Supported backends
+
+| Backend    | Status  | Build flag            | Notes                                |
+| ---------- | ------- | --------------------- | ------------------------------------ |
+| SQLite     | Stable  | Enabled by default    | Vendored amalgamation, no system lib |
+| PostgreSQL | Stable  | `-Dpostgres=true`     | Requires `libpq`                     |
+
+## Architecture
+
+`zzz_db` follows a layered architecture with three primary abstractions:
+
+```
+Schema  -->  Query  -->  Repo
+  |            |           |
+  |  struct-to-table       |  fluent query builder    |  executes against pool
+  |  mapping at comptime   |  produces SQL + binds     |  returns typed results
+```
+
+- **Schema** -- maps a Zig struct to a database table at compile time. Generates column lists, INSERT placeholders, and CREATE TABLE SQL for both dialects.
+- **Query** -- builds SELECT statements with where clauses, joins, ordering, grouping, and pagination. Produces dialect-aware SQL and bind values.
+- **Repo** -- executes queries against a connection pool and maps result rows back into typed Zig structs. Provides CRUD convenience methods.
+
+Supporting these are **Pool** (manages a fixed set of connections), **Transaction** (begin/commit/rollback), and **Changeset** (validates user input before persisting).
+
+## Adding the dependency
+
+Add `zzz_db` to your `build.zig.zon`:
+
+```zig
+.dependencies = .{
+    .zzz_db = .{
+        .path = "../zzz_db",
+    },
+},
+```
+
+Then in your `build.zig`, import the module:
+
+```zig
+const zzz_db_dep = b.dependency("zzz_db", .{
+    .target = target,
+    .optimize = optimize,
+});
+exe.root_module.addImport("zzz_db", zzz_db_dep.module("zzz_db"));
+```
+
+To enable PostgreSQL support, pass `-Dpostgres=true` when building:
+
+```bash
+zig build -Dpostgres=true
+```
+
+## Quick start
+
+<Steps>
+
+1. **Define a schema**
+
+    ```zig
+    const zzz_db = @import("zzz_db");
+
+    pub const User = struct {
+        id: i64,
+        name: []const u8,
+        email: []const u8,
+        inserted_at: i64 = 0,
+        updated_at: i64 = 0,
+
+        pub const Meta = zzz_db.Schema.define(@This(), .{
+            .table = "users",
+            .primary_key = "id",
+            .timestamps = true,
+        });
+    };
+    ```
+
+2. **Create a connection pool**
+
+    <Tabs>
+    <TabItem label="SQLite">
+    ```zig
+    var pool = try zzz_db.SqlitePool.init(.{
+        .size = 5,
+        .connection = .{ .database = "myapp.db" },
+    });
+    defer pool.deinit();
+    ```
+    </TabItem>
+    <TabItem label="PostgreSQL">
+    ```zig
+    var pool = try zzz_db.PgPool.init(.{
+        .size = 5,
+        .connection = .{ .database = "postgresql://localhost/myapp" },
+    });
+    defer pool.deinit();
+    ```
+    </TabItem>
+    </Tabs>
+
+3. **Initialize a repository**
+
+    ```zig
+    var repo = zzz_db.SqliteRepo.init(&pool);
+    ```
+
+4. **Insert a record**
+
+    ```zig
+    var user = try repo.insert(User, .{
+        .id = 0,
+        .name = "Alice",
+        .email = "alice@example.com",
+    }, allocator);
+    defer zzz_db.freeOne(User, &user, allocator);
+    ```
+
+5. **Query records**
+
+    ```zig
+    const query = zzz_db.Query(User).init()
+        .where("name", .eq, "Alice")
+        .orderBy("inserted_at", .desc)
+        .limit(10);
+
+    const users = try repo.all(User, query, allocator);
+    defer zzz_db.freeAll(User, users, allocator);
+    ```
+
+</Steps>
+
+## Connection pool configuration
+
+| Option                       | Type   | Default       | Description                            |
+| ---------------------------- | ------ | ------------- | -------------------------------------- |
+| `size`                       | `u16`  | `5`           | Number of connections in the pool      |
+| `connection`                 | Config | Backend default | Backend-specific connection config   |
+| `checkout_timeout_iterations`| `u32`  | `100_000`     | Spin iterations before checkout fails  |
+
+### SQLite connection options
+
+| Option            | Type              | Default                         | Description                    |
+| ----------------- | ----------------- | ------------------------------- | ------------------------------ |
+| `database`        | `[:0]const u8`    | `":memory:"`                    | Database file path             |
+| `busy_timeout_ms` | `c_int`           | `5000`                          | Busy timeout in milliseconds   |
+| `enable_wal`      | `bool`            | `true`                          | Enable WAL journal mode        |
+| `pragmas`         | `[]const [:0]const u8` | `&.{"PRAGMA foreign_keys = ON"}` | PRAGMA statements to run on connect |
+
+## Memory management
+
+`zzz_db` allocates memory for string fields in query results. You are responsible for freeing these allocations:
+
+- **`zzz_db.freeAll(T, items, allocator)`** -- frees a slice returned by `repo.all()` or `repo.rawAll()`, including all owned string fields
+- **`zzz_db.freeOne(T, &item, allocator)`** -- frees string fields in a single struct returned by `repo.get()`, `repo.one()`, `repo.insert()`, or `repo.update()`
+
+Always use `defer` to ensure cleanup:
+
+```zig
+var user = try repo.insert(User, .{ .id = 0, .name = "Alice", .email = "a@example.com" }, allocator);
+defer zzz_db.freeOne(User, &user, allocator);
+```
+
+## Next steps
+
+- [Schema](/database/schema/) -- learn how to define struct-to-table mappings
+- [Repository](/database/repository/) -- explore the full CRUD API
+- [Query Builder](/database/query-builder/) -- compose queries with the fluent API
+- [Changesets](/database/changesets/) -- validate user input before persisting
+- [Transactions](/database/transactions/) -- manage transactions and savepoints
+- [Migrations](/database/migrations/) -- version your database schema

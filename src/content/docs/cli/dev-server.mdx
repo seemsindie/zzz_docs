@@ -1,0 +1,124 @@
+---
+title: Development Server
+description: Use zzz server to run your application with automatic rebuilds and restarts during development.
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+The `zzz server` command (also available as `zzz s`) starts a development server that builds and runs your application, then watches for changes and automatically restarts when source files are modified.
+
+## Usage
+
+```bash
+zzz server
+```
+
+The server performs the following cycle:
+
+1. Runs `zig build run` to compile and start your application.
+2. Prints "Server running. Watching for changes..." when the build succeeds.
+3. When the process exits (due to a file change trigger or an error), it rebuilds and restarts.
+4. Press `Ctrl+C` to stop.
+
+## Getting started
+
+<Steps>
+1. Navigate to your zzz project directory:
+
+   ```bash
+   cd my_app
+   ```
+
+2. Start the development server:
+
+   ```bash
+   zzz server
+   ```
+
+3. Open `http://127.0.0.1:4000` in your browser.
+
+4. Edit any `.zig` file under `src/` -- the server will rebuild and restart automatically.
+</Steps>
+
+## Typical output
+
+```
+Starting zzz development server...
+  Building...
+  Server running. Watching for changes... (Ctrl+C to stop)
+```
+
+If the build fails or the server exits with a non-zero code, the CLI waits two seconds before retrying:
+
+```
+  Server exited with code 1. Waiting for changes to retry...
+  Building...
+```
+
+A clean exit (code 0) or a termination signal (e.g., `Ctrl+C`) stops the loop entirely.
+
+## Environment selection
+
+The dev server uses `zig build run`, which loads `config/dev.zig` by default. To run with a different environment configuration, use `zig build run` directly with the `-Denv` flag:
+
+```bash
+zig build run -Denv=staging
+```
+
+## Development workflow
+
+A typical development session looks like this:
+
+<Steps>
+1. Start the dev server:
+
+   ```bash
+   zzz server
+   ```
+
+2. Generate new code as needed:
+
+   ```bash
+   # In another terminal:
+   zzz gen controller Products
+   zzz gen model Product name:string price:float in_stock:boolean
+   zzz migrate
+   ```
+
+3. Edit the generated files to add your application logic.
+
+4. The dev server detects the changes and rebuilds automatically.
+
+5. Test your endpoints in the browser or with `curl`:
+
+   ```bash
+   curl http://127.0.0.1:4000/products
+   ```
+</Steps>
+
+## Running tests alongside the server
+
+In a separate terminal, use the test command to run your project's test suite at any time:
+
+```bash
+zzz test
+```
+
+This invokes `zig build test` and reports the results.
+
+## Listing routes
+
+To see all routes defined in your application:
+
+```bash
+zzz routes
+```
+
+This runs your app with the `--routes` flag, which prints a formatted table of all registered routes, their HTTP methods, and handler functions.
+
+## Next steps
+
+- [CLI overview](/cli/overview) for the full list of commands
+- [Create a new project](/cli/new-project) if you have not set one up yet
+- [Generate code](/cli/generators) to add controllers, models, and channels
+- [Run migrations](/cli/migrations-cli) after generating models

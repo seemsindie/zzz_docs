@@ -1,0 +1,132 @@
+---
+title: "Unique Jobs"
+description: "Prevent duplicate background jobs in zzz_jobs using unique keys and deduplication strategies."
+---
+
+When the same work might be enqueued multiple times -- for example, sending a welcome email triggered by multiple webhook deliveries, or a cron job firing while a previous run is still in progress -- unique jobs let you deduplicate at enqueue time using an idempotency key.
+
+## How unique jobs work
+
+Every job can optionally carry a `unique_key`. When you enqueue a job with a `unique_key`, the store checks for any existing job with the same key that is still in a non-terminal state (`available`, `executing`, `scheduled`, or `retryable`). Jobs that are `completed`, `discarded`, or `cancelled` are ignored during this check.
+
+If a match is found, the behavior depends on the `unique_strategy`.
+
+## UniqueStrategy
+
+```zig
+pub const UniqueStrategy = enum {
+    ignore_new,
+    cancel_existing,
+};
+```
+
+| Strategy | Behavior |
+|---|---|
+| `ignore_new` | The new job is silently dropped. The existing job is returned from `enqueue`. |
+| `cancel_existing` | The existing job is moved to `discarded`, and the new job is inserted. |
+
+## Usage
+
+### Preventing duplicate work (ignore_new)
+
+The most common case: you want to ensure only one instance of a job is pending at a time. If a duplicate is enqueued, it is silently ignored.
+
+```zig
+const zzz_jobs = @import("zzz_jobs");
+
+// First enqueue creates the job
+const job1 = try supervisor.enqueue("email_worker", "{\"to\": \"user@example.com\"}", .{
+    .unique_key = "welcome-email-user-123",
+    .unique_strategy = .ignore_new,
+});
+
+// Second enqueue with the same key returns the existing job (no duplicate created)
+const job2 = try supervisor.enqueue("email_worker", "{\"to\": \"user@example.com\"}", .{
+    .unique_key = "welcome-email-user-123",
+    .unique_strategy = .ignore_new,
+});
+
+// job1.id == job2.id
+```
+
+### Replacing pending work (cancel_existing)
+
+When you want new data to supersede an older pending job. The existing job is discarded and a fresh job takes its place.
+
+```zig
+// First enqueue
+const job1 = try supervisor.enqueue("sync_worker", "{\"version\": 1}", .{
+    .unique_key = "sync-account-42",
+    .unique_strategy = .cancel_existing,
+});
+
+// Second enqueue discards job1 and creates a new job
+const job2 = try supervisor.enqueue("sync_worker", "{\"version\": 2}", .{
+    .unique_key = "sync-account-42",
+    .unique_strategy = .cancel_existing,
+});
+
+// job1 is now discarded, job2 is the active job
+// job1.id != job2.id
+```
+
+## Choosing a unique key
+
+The unique key is an arbitrary string (up to 128 characters in `DbStore`). Good keys include enough context to identify the logical unit of work:
+
+| Pattern | Example | Use case |
+|---|---|---|
+| `{action}-{entity}-{id}` | `"welcome-email-user-123"` | One welcome email per user |
+| `{worker}-{resource}` | `"sync-account-42"` | One sync per account |
+| `{schedule-name}` | `"hourly-cleanup"` | One cleanup job at a time |
+| `{action}-{hash}` | `"process-order-abc123"` | One processing per order |
+
+## Lifecycle of unique keys
+
+The uniqueness constraint is active only while the job is in a non-terminal state:
+
+| State | Blocks new jobs with same key? |
+|---|---|
+| `available` | Yes |
+| `executing` | Yes |
+| `scheduled` | Yes |
+| `retryable` | Yes (transitions to `available`) |
+| `completed` | No |
+| `discarded` | No |
+| `cancelled` | No |
+
+Once a job completes, is discarded, or is cancelled, its unique key is freed and a new job with the same key can be enqueued.
+
+## Combining with cron
+
+Unique keys are particularly useful with cron-scheduled jobs to prevent overlap when a job runs longer than the cron interval:
+
+```zig
+try supervisor.registerCron(
+    "hourly_report",
+    "0 * * * *",           // every hour
+    "report_worker",
+    "{}",
+    .{
+        .unique_key = "hourly-report",
+        .unique_strategy = .ignore_new,
+    },
+);
+```
+
+If the report takes 90 minutes, the 1-hour cron tick will try to enqueue a duplicate, but `ignore_new` silently skips it because the previous job is still executing.
+
+## Defaults
+
+| Option | Default |
+|---|---|
+| `unique_key` | `null` (no uniqueness constraint) |
+| `unique_strategy` | `.ignore_new` |
+
+When `unique_key` is `null`, no uniqueness check is performed and the job is always enqueued.
+
+## Next steps
+
+- [Cron scheduling](/jobs/cron/) -- recurring jobs that benefit from unique keys
+- [Queues and stores](/jobs/queues-and-stores/) -- how uniqueness is enforced in each store backend
+- [Workers and supervisors](/jobs/workers/) -- the execution model

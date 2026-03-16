@@ -1,0 +1,267 @@
+---
+title: "Database Sandbox"
+description: "Isolate database tests with automatic transaction rollback, test factories, and data seeding."
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+The `zzz_db.testing` module provides three utilities for database testing:
+
+- **TestSandbox** -- wraps a database connection in a transaction that rolls back on cleanup, so each test starts with a clean slate.
+- **Factory** -- creates test records with sensible defaults and optional field overrides.
+- **seed** -- bulk-inserts a list of records for test setup.
+
+All three work with any `zzz_db` backend (SQLite, PostgreSQL) through the same generic interface.
+
+## TestSandbox
+
+`TestSandbox` begins a transaction when you call `begin()` and rolls it back when you call `rollback()`. Any rows inserted, updated, or deleted during the test are undone -- no need to truncate tables or recreate the database between tests.
+
+### Basic usage
+
+<Steps>
+
+1. **Open a database connection** as you normally would:
+
+   ```zig
+   const zzz_db = @import("zzz_db");
+   const sqlite = zzz_db.sqlite;
+   const Connection = zzz_db.Connection;
+
+   var conn = try Connection(sqlite).open(.{});
+   defer conn.close();
+   ```
+
+2. **Begin a sandbox** and defer `rollback()`:
+
+   ```zig
+   var sandbox = try zzz_db.testing.TestSandbox(sqlite).begin(&conn);
+   defer sandbox.rollback();
+   ```
+
+3. **Run your test code** using the same connection. All changes are rolled back when the sandbox goes out of scope:
+
+   ```zig
+   test "inserting a user rolls back" {
+       var conn = try Connection(sqlite).open(.{});
+       defer conn.close();
+
+       {
+           var sandbox = try zzz_db.testing.TestSandbox(sqlite).begin(&conn);
+           defer sandbox.rollback();
+
+           try conn.exec("INSERT INTO users (name, email) VALUES ('alice', 'a@e.com')");
+           // The row exists inside this block...
+       }
+
+       // ...but is gone after rollback
+       var stmt = try sqlite.Statement.prepare(
+           &conn.db,
+           "SELECT COUNT(*) FROM users WHERE name = 'alice'",
+       );
+       defer stmt.finalize();
+       _ = try stmt.step();
+       try std.testing.expectEqual(@as(i64, 0), stmt.columnInt64(0));
+   }
+   ```
+
+</Steps>
+
+### Committing in a sandbox
+
+In rare cases where you want to verify that a transaction commits successfully, you can call `commit()` instead of relying on the deferred `rollback()`:
+
+```zig
+test "explicit commit persists" {
+    var conn = try Connection(sqlite).open(.{});
+    defer conn.close();
+
+    {
+        var sandbox = try zzz_db.testing.TestSandbox(sqlite).begin(&conn);
+        try conn.exec("INSERT INTO users (name, email) VALUES ('bob', 'b@e.com')");
+        try sandbox.commit();
+    }
+
+    // The row is persisted
+}
+```
+
+Note that `commit()` makes the data permanent in the test database. Use this only when you specifically need to test commit behavior.
+
+### How it works
+
+`TestSandbox` is a thin wrapper around `zzz_db`'s transaction primitives:
+
+| Method | SQL equivalent | Effect |
+|---|---|---|
+| `begin(&conn)` | `BEGIN` | Starts a transaction on the connection |
+| `rollback()` | `ROLLBACK` | Undoes all changes since `begin` |
+| `commit()` | `COMMIT` | Persists all changes since `begin` |
+
+Since the sandbox operates at the connection level, all queries run through that connection participate in the transaction automatically -- including those made through `Repo` and `Query`.
+
+## Factory
+
+`Factory` provides a convenient way to create test records with default values and optional field overrides. It is generic over the database backend and schema type.
+
+### Creating a single record
+
+```zig
+const zzz_db = @import("zzz_db");
+const sqlite = zzz_db.sqlite;
+const Pool = zzz_db.Pool;
+const Repo = zzz_db.Repo;
+
+const User = struct {
+    id: i64,
+    name: []const u8,
+    email: []const u8,
+    inserted_at: i64 = 0,
+    updated_at: i64 = 0,
+
+    pub const Meta = zzz_db.schema.define(@This(), .{
+        .table = "users",
+        .primary_key = "id",
+        .timestamps = true,
+    });
+};
+
+test "factory creates a user" {
+    var pool = try Pool(sqlite).init(.{ .size = 1 });
+    defer pool.deinit();
+
+    var factory = zzz_db.testing.Factory(sqlite, User).init(&pool);
+    var user = try factory.create(.{ .name = "Alice", .email = "a@example.com" }, std.testing.allocator);
+    defer zzz_db.Repo.freeOne(User, &user, std.testing.allocator);
+
+    try std.testing.expect(user.id > 0);
+    try std.testing.expectEqualStrings("Alice", user.name);
+    try std.testing.expectEqualStrings("a@example.com", user.email);
+}
+```
+
+### Default values
+
+When you call `factory.create(.{ .name = "Alice" }, allocator)`, the factory:
+
+1. Creates a record with zero/empty defaults for every field:
+   - `[]const u8` fields default to `""`
+   - Integer fields default to `0`
+   - Float fields default to `0.0`
+   - Boolean fields default to `false`
+   - Optional fields default to `null`
+   - Fields with a `default_value` in the struct definition use that default
+2. Applies your overrides on top of those defaults.
+3. Inserts the record via `Repo.insert` and returns it.
+
+### Creating multiple records
+
+Use `createMany` to insert several records at once:
+
+```zig
+test "factory creates many" {
+    var pool = try Pool(sqlite).init(.{ .size = 1 });
+    defer pool.deinit();
+
+    var factory = zzz_db.testing.Factory(sqlite, User).init(&pool);
+    const users = try factory.createMany(3, .{
+        .name = "TestUser",
+        .email = "test@example.com",
+    }, std.testing.allocator);
+    defer {
+        for (users) |*u| {
+            zzz_db.Repo.freeOne(User, u, std.testing.allocator);
+        }
+        std.testing.allocator.free(users);
+    }
+
+    try std.testing.expectEqual(@as(usize, 3), users.len);
+    for (users) |u| {
+        try std.testing.expect(u.id > 0);
+        try std.testing.expectEqualStrings("TestUser", u.name);
+    }
+}
+```
+
+All records receive the same overrides. Each gets its own auto-incremented primary key from the database.
+
+## Seeding test data
+
+The `seed` function bulk-inserts a list of fully specified records. Unlike `Factory`, you provide complete record values:
+
+```zig
+test "seed inserts records" {
+    var pool = try Pool(sqlite).init(.{ .size = 1 });
+    defer pool.deinit();
+
+    var repo = zzz_db.Repo(sqlite).init(&pool);
+    try zzz_db.testing.seed(sqlite, User, &repo, &.{
+        .{ .id = 0, .name = "Alice", .email = "alice@example.com" },
+        .{ .id = 0, .name = "Bob", .email = "bob@example.com" },
+    }, std.testing.allocator);
+
+    const q = zzz_db.Query(User).init();
+    const count = try repo.count(User, q, std.testing.allocator);
+    try std.testing.expectEqual(@as(i64, 2), count);
+}
+```
+
+Set `id` to `0` for auto-increment primary keys -- the database assigns the actual values on insert.
+
+## Combining sandbox and factory
+
+The most common pattern is to wrap factory usage inside a sandbox so all test data is automatically cleaned up:
+
+```zig
+test "full database test" {
+    var pool = try Pool(sqlite).init(.{ .size = 1 });
+    defer pool.deinit();
+
+    // Get a connection and start a sandbox
+    var pc = try pool.checkout();
+    defer pc.release();
+
+    var sandbox = try zzz_db.testing.TestSandbox(sqlite).begin(&pc.conn);
+    defer sandbox.rollback();
+
+    // Create test data with factory
+    var factory = zzz_db.testing.Factory(sqlite, User).init(&pool);
+    var user = try factory.create(.{
+        .name = "Alice",
+        .email = "alice@example.com",
+    }, std.testing.allocator);
+    defer zzz_db.Repo.freeOne(User, &user, std.testing.allocator);
+
+    // Run assertions against the test data
+    try std.testing.expect(user.id > 0);
+    try std.testing.expectEqualStrings("Alice", user.name);
+
+    // When this block exits, sandbox.rollback() removes all inserted rows
+}
+```
+
+## Setting up a test database
+
+For SQLite, the default `open(.{})` creates an in-memory database, which is ideal for testing -- each test gets a fresh database with no filesystem cleanup needed.
+
+For PostgreSQL or other backends that require a persistent database, create a dedicated test database and configure the connection:
+
+<Steps>
+
+1. Create a test database (outside of Zig):
+
+   ```sql
+   CREATE DATABASE myapp_test;
+   ```
+
+2. Run migrations to set up the schema before your tests run.
+
+3. Use `TestSandbox` in each test to ensure isolation -- the schema persists but data does not.
+
+</Steps>
+
+## Next steps
+
+- [Testing Overview](/testing/overview/) -- introduction to the full testing toolkit.
+- [HTTP Test Client](/testing/http-test-client/) -- testing HTTP endpoints with `TestClient`.
+- [WebSocket Testing](/testing/websocket-testing/) -- testing channels with `TestChannel`.

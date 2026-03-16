@@ -1,0 +1,104 @@
+---
+title: "Auth & Security Overview"
+description: "Overview of authentication and security middleware in zzz, including bearer tokens, basic auth, JWT, sessions, CSRF protection, and rate limiting."
+---
+
+import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
+
+zzz ships with a complete suite of authentication and security middleware that you can compose together to protect your application. Every middleware follows the same pattern: a comptime configuration struct, a function that returns a `HandlerFn`, and data passed between middleware via the `ctx.assigns` key-value store.
+
+## Available middleware
+
+| Middleware | Function | Purpose |
+|---|---|---|
+| Bearer token | `zzz.bearerAuth(.{})` | Extracts `Authorization: Bearer <token>` into assigns |
+| Basic auth | `zzz.basicAuth(.{})` | Extracts `Authorization: Basic <credentials>` into assigns |
+| JWT (HMAC-SHA256) | `zzz.jwtAuth(.{})` | Verifies JWT signature and extracts payload into assigns |
+| Sessions | `zzz.session(.{})` | Cookie-based session management with an in-memory store |
+| CSRF protection | `zzz.csrf(.{})` | Per-session CSRF tokens; validates unsafe HTTP methods |
+| Rate limiting | `zzz.rateLimit(.{})` | Token-bucket rate limiter keyed by client header |
+
+## How they compose
+
+Middleware runs in the order you declare it. Some middleware depends on others being earlier in the pipeline. The recommended ordering is:
+
+```zig
+const App = zzz.Router.define(.{
+    .middleware = &.{
+        zzz.errorHandler(.{ .show_details = true }),
+        zzz.logger,
+        zzz.bodyParser,
+        zzz.session(.{}),        // must come before csrf
+        zzz.csrf(.{}),           // must come after session
+    },
+    .routes = routes,
+});
+```
+
+Key ordering rules:
+
+- **Session before CSRF** -- the CSRF middleware reads and writes tokens through session assigns. If there is no session middleware upstream, CSRF tokens will not persist across requests.
+- **Body parser before CSRF** -- for POST requests, the CSRF middleware checks form fields via `ctx.formValue()`, which requires the body parser to have run first.
+- **Auth middleware on scopes** -- bearer, basic, and JWT middleware are typically applied per-scope rather than globally, so only protected routes require credentials.
+
+## Scoped vs global middleware
+
+Global middleware is declared in the top-level `Router.define` config and applies to every route. Auth middleware is usually applied to a subset of routes using `Router.scope`:
+
+```zig
+const routes = zzz.Router.scope("/api", &.{
+    zzz.bearerAuth(.{ .required = true }),
+}, &.{
+    zzz.Router.get("/profile", profileHandler),
+    zzz.Router.get("/settings", settingsHandler),
+});
+```
+
+You can nest multiple scopes with different auth strategies:
+
+```zig
+const routes =
+    zzz.Router.scope("/auth", &.{zzz.bearerAuth(.{ .required = true })}, &.{
+        zzz.Router.get("/bearer", bearerHandler),
+    })
+    ++ zzz.Router.scope("/auth", &.{zzz.basicAuth(.{ .required = true })}, &.{
+        zzz.Router.get("/basic", basicHandler),
+    })
+    ++ zzz.Router.scope("/auth", &.{zzz.jwtAuth(.{ .secret = "my-secret", .required = true })}, &.{
+        zzz.Router.get("/jwt", jwtHandler),
+    });
+```
+
+## The assigns pattern
+
+All auth middleware stores extracted data in the context assigns map, a fixed-size key-value store available to downstream handlers:
+
+```zig
+fn protectedHandler(ctx: *zzz.Context) !void {
+    // Read data placed by auth middleware
+    const token = ctx.getAssign("bearer_token") orelse {
+        ctx.text(.unauthorized, "No token");
+        return;
+    };
+
+    // Use the token to look up the user, etc.
+    _ = token;
+    ctx.json(.ok, "{\"status\":\"authenticated\"}");
+}
+```
+
+Each middleware uses a configurable assign key so you can avoid collisions if you combine multiple strategies on the same route.
+
+## Required vs optional mode
+
+Every auth middleware has a `required` field (default `false`):
+
+- **`required = false`** -- the middleware extracts credentials if present but calls `ctx.next()` regardless. Downstream handlers check assigns to decide what to do.
+- **`required = true`** -- the middleware returns `401 Unauthorized` with the appropriate `WWW-Authenticate` header and does not call `ctx.next()` if credentials are missing or invalid.
+
+## Next steps
+
+- [Bearer and Basic Auth](/authentication/bearer-and-basic/) -- detailed configuration and usage
+- [JWT Authentication](/authentication/jwt/) -- token verification, claims, and secrets
+- [Sessions and CSRF](/authentication/sessions-and-csrf/) -- session stores and cross-site request forgery protection
+- [Rate Limiting](/authentication/rate-limiting/) -- throttle requests per client

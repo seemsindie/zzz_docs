@@ -1,0 +1,296 @@
+---
+title: "Migrations"
+description: "Versioned database schema changes with up/down migrations."
+---
+
+import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
+
+Migrations manage database schema changes with versioned up/down functions and DDL helpers. Each migration has a unique version number, a name, and a pair of `up`/`down` functions that apply or revert the change. zzz_db tracks applied migrations in a `schema_migrations` table so that `migrate` is idempotent and rollbacks are precise.
+
+## Defining migrations
+
+A migration is a `MigrationDef` struct with four fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `version` | `i64` | Unique timestamp-based identifier (e.g. `20240101000001`). Migrations run in version order. |
+| `name` | `[]const u8` | Human-readable name for display in status output. |
+| `up` | `*const fn (*MigrationContext) anyerror!void` | Function that applies the migration. |
+| `down` | `*const fn (*MigrationContext) anyerror!void` | Function that reverts the migration. |
+
+`MigrationDef` is parameterized by backend, so you use `zzz_db.MigrationDef(sqlite)` or `zzz_db.MigrationDef(postgres)` depending on your database.
+
+```zig
+const zzz_db = @import("zzz_db");
+const sqlite = zzz_db.sqlite;
+const MigrationDef = zzz_db.MigrationDef(sqlite);
+const MigCtx = zzz_db.MigrationContext(sqlite);
+
+const migrations = [_]MigrationDef{
+    .{
+        .version = 20240101000001,
+        .name = "create_users",
+        .up = &struct {
+            fn f(ctx: *MigCtx) !void {
+                try ctx.createTable("users", &.{
+                    .{ .name = "id", .col_type = .bigint, .primary_key = true, .auto_increment = true },
+                    .{ .name = "name", .col_type = .text, .not_null = true },
+                    .{ .name = "email", .col_type = .text, .not_null = true, .unique = true },
+                });
+            }
+        }.f,
+        .down = &struct {
+            fn f(ctx: *MigCtx) !void {
+                try ctx.dropTable("users");
+            }
+        }.f,
+    },
+    .{
+        .version = 20240101000002,
+        .name = "create_posts",
+        .up = &struct {
+            fn f(ctx: *MigCtx) !void {
+                try ctx.createTable("posts", &.{
+                    .{ .name = "id", .col_type = .bigint, .primary_key = true, .auto_increment = true },
+                    .{ .name = "title", .col_type = .text, .not_null = true },
+                    .{ .name = "user_id", .col_type = .bigint, .not_null = true },
+                });
+                try ctx.createIndex("idx_posts_user_id", "posts", &.{"user_id"}, false);
+            }
+        }.f,
+        .down = &struct {
+            fn f(ctx: *MigCtx) !void {
+                try ctx.dropIndex("idx_posts_user_id");
+                try ctx.dropTable("posts");
+            }
+        }.f,
+    },
+};
+```
+
+### Version numbering
+
+Use a timestamp format like `YYYYMMDDHHMMSS` (e.g. `20240101000001`) to ensure migrations sort chronologically. The version is stored as an `i64` in the `schema_migrations` table.
+
+## MigrationContext DDL helpers
+
+The `MigrationContext` provides high-level helpers that generate dialect-aware SQL. You do not need to write raw DDL unless you want to.
+
+### createTable
+
+Creates a new table with the specified columns.
+
+```zig
+try ctx.createTable("users", &.{
+    .{ .name = "id", .col_type = .bigint, .primary_key = true, .auto_increment = true },
+    .{ .name = "name", .col_type = .text, .not_null = true },
+    .{ .name = "email", .col_type = .text, .not_null = true, .unique = true },
+    .{ .name = "bio", .col_type = .text, .default = "''" },
+    .{ .name = "team_id", .col_type = .bigint, .references = .{ .table = "teams", .column = "id" } },
+});
+```
+
+### Column definition options
+
+Each column is a `ColumnDef` struct with the following fields:
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `name` | `[]const u8` | (required) | Column name |
+| `col_type` | `ColumnType` | (required) | One of: `.integer`, `.bigint`, `.text`, `.real`, `.boolean`, `.blob`, `.timestamp` |
+| `primary_key` | `bool` | `false` | Mark as primary key |
+| `auto_increment` | `bool` | `false` | Auto-increment (SQLite: `AUTOINCREMENT`, PostgreSQL: `BIGSERIAL`) |
+| `not_null` | `bool` | `false` | Add `NOT NULL` constraint |
+| `unique` | `bool` | `false` | Add `UNIQUE` constraint |
+| `default` | `?[]const u8` | `null` | Default value expression |
+| `references` | `?struct { table, column }` | `null` | Inline foreign key reference |
+
+### dropTable
+
+Drops a table if it exists.
+
+```zig
+try ctx.dropTable("users");
+```
+
+### addColumn
+
+Adds a column to an existing table.
+
+```zig
+try ctx.addColumn("users", .{
+    .name = "age",
+    .col_type = .integer,
+    .not_null = true,
+    .default = "0",
+});
+```
+
+### dropColumn
+
+Removes a column from a table.
+
+```zig
+try ctx.dropColumn("users", "age");
+```
+
+### renameColumn
+
+Renames a column.
+
+```zig
+try ctx.renameColumn("users", "name", "full_name");
+```
+
+### createIndex / dropIndex
+
+Creates or drops an index. Pass `true` for the `unique` parameter to create a unique index.
+
+```zig
+// Create a non-unique index
+try ctx.createIndex("idx_posts_user_id", "posts", &.{"user_id"}, false);
+
+// Create a unique composite index
+try ctx.createIndex("idx_users_email", "users", &.{"email"}, true);
+
+// Drop an index
+try ctx.dropIndex("idx_posts_user_id");
+```
+
+### addForeignKey
+
+Adds a foreign key constraint to an existing table. This is only supported on PostgreSQL -- SQLite requires foreign keys to be defined inline at table creation time using the `references` field on `ColumnDef`.
+
+```zig
+try ctx.addForeignKey("posts", "user_id", "users", "id");
+// Generates: ALTER TABLE posts ADD CONSTRAINT fk_posts_user_id
+//            FOREIGN KEY (user_id) REFERENCES users(id)
+```
+
+### execRaw
+
+For anything the DDL helpers do not cover, execute raw SQL directly.
+
+```zig
+try ctx.execRaw("CREATE EXTENSION IF NOT EXISTS pgcrypto");
+```
+
+## Running migrations
+
+<Steps>
+1. Create a connection pool:
+
+   ```zig
+   var pool = try zzz_db.SqlitePool.init(.{ .size = 5 });
+   defer pool.deinit();
+   ```
+
+2. Initialize the migration runner:
+
+   ```zig
+   const runner = zzz_db.Runner(sqlite).init(&pool);
+   ```
+
+3. Run all pending migrations:
+
+   ```zig
+   const applied_count = try runner.migrate(&migrations, allocator);
+   std.log.info("Applied {d} migrations", .{applied_count});
+   ```
+</Steps>
+
+The `migrate` function is idempotent. If all migrations have already been applied, it returns `0` and does nothing. Each migration runs inside its own transaction, so a failure in one migration does not affect previously applied migrations.
+
+## Rolling back migrations
+
+Roll back the most recently applied migrations by specifying how many to revert:
+
+```zig
+// Roll back the last migration
+const rolled = try runner.rollback(&migrations, 1, allocator);
+std.log.info("Rolled back {d} migrations", .{rolled});
+
+// Roll back the last 3 migrations
+const rolled_3 = try runner.rollback(&migrations, 3, allocator);
+```
+
+Rollbacks execute `down` functions in reverse chronological order. Each rollback runs inside its own transaction.
+
+## Checking migration status
+
+Query which migrations have been applied and which are pending:
+
+```zig
+const statuses = try runner.status(&migrations, allocator);
+defer allocator.free(statuses);
+
+for (statuses) |s| {
+    std.log.info("{d} {s} — {s}", .{
+        s.version,
+        s.name,
+        if (s.applied) "applied" else "pending",
+    });
+}
+```
+
+Each `MigrationStatus` contains:
+
+| Field | Type | Description |
+|---|---|---|
+| `version` | `i64` | The migration version number |
+| `name` | `[]const u8` | The migration name |
+| `applied` | `bool` | Whether this migration has been applied |
+
+## Migration tracking table
+
+zzz_db automatically creates a `schema_migrations` table when you first call `migrate`, `rollback`, or `status`. The table has two columns:
+
+<Tabs>
+  <TabItem label="SQLite">
+    ```sql
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+        version BIGINT PRIMARY KEY,
+        inserted_at BIGINT DEFAULT 0
+    );
+    ```
+  </TabItem>
+  <TabItem label="PostgreSQL">
+    ```sql
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+        version BIGINT PRIMARY KEY,
+        inserted_at TIMESTAMP DEFAULT NOW()
+    );
+    ```
+  </TabItem>
+</Tabs>
+
+You can query applied versions directly if needed:
+
+```zig
+const versions = try runner.appliedVersions(allocator);
+defer allocator.free(versions);
+// versions is a sorted []i64 of applied migration version numbers
+```
+
+## Column type mapping
+
+The `ColumnType` enum maps to different SQL types depending on the backend:
+
+| ColumnType | SQLite | PostgreSQL |
+|---|---|---|
+| `.integer` | `INTEGER` | `INTEGER` |
+| `.bigint` | `BIGINT` | `BIGINT` |
+| `.text` | `TEXT` | `TEXT` |
+| `.real` | `REAL` | `DOUBLE PRECISION` |
+| `.boolean` | `BOOLEAN` | `BOOLEAN` |
+| `.blob` | `BLOB` | `BYTEA` |
+| `.timestamp` | `BIGINT` | `TIMESTAMP` |
+
+Auto-increment primary keys are handled specially: SQLite uses `INTEGER PRIMARY KEY AUTOINCREMENT` and PostgreSQL uses `BIGSERIAL PRIMARY KEY`.
+
+## Next steps
+
+- [Transactions](/database/transactions/) -- wrap migration-level operations in explicit transactions with isolation levels
+- [Schema](/database/schema/) -- define compile-time struct-to-table mappings that complement your migrations
+- [Associations](/database/associations/) -- set up foreign key relationships between schemas
+- [Database Testing](/database/testing/) -- use `TestSandbox` to test migrations with automatic rollback

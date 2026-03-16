@@ -1,0 +1,135 @@
+---
+title: Installation
+description: How to install the zzz CLI and add zzz to your Zig project.
+---
+
+import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
+
+## Prerequisites
+
+- **Zig 0.16.0** or later — [Install Zig](https://ziglang.org/download/)
+- **Git** — for fetching dependencies via `build.zig.zon`
+
+## Install the CLI
+
+The `zzz` CLI provides project scaffolding, code generation, a dev server, and database migrations.
+
+<Tabs>
+  <TabItem label="Shell">
+    ```bash
+    curl -fsSL https://zzz.seemsindie.com/install.sh | sh
+    ```
+
+    Install a specific version:
+
+    ```bash
+    ZZZ_VERSION=v0.1.0 curl -fsSL https://zzz.seemsindie.com/install.sh | sh
+    ```
+  </TabItem>
+  <TabItem label="Build from source">
+    ```bash
+    git clone https://github.com/seemsindie/zzz_cli.git
+    cd zzz_cli
+    zig build
+    # Binary at zig-out/bin/zzz
+    ```
+  </TabItem>
+  <TabItem label="GitHub Releases">
+    Pre-built binaries for macOS (arm64, x86_64) and Linux (x86_64, aarch64) are available on the
+    [Releases](https://github.com/seemsindie/zzz_cli/releases) page.
+  </TabItem>
+</Tabs>
+
+Verify the installation:
+
+```bash
+zzz version
+```
+
+## Create a new project
+
+<Steps>
+1. **Scaffold the project**
+
+   ```bash
+   zzz new my_app
+   ```
+
+   This creates a full project structure:
+
+   ```
+   my_app/
+     build.zig
+     build.zig.zon
+     .gitignore
+     src/
+       main.zig
+       controllers/
+     templates/
+     public/
+       css/style.css
+       js/app.js
+   ```
+
+2. **Build and run**
+
+   ```bash
+   cd my_app
+   zig build run
+   ```
+
+   Your server is now running at `http://127.0.0.1:4000`.
+
+3. **Start the dev server** (with auto-reload)
+
+   ```bash
+   zzz server
+   ```
+</Steps>
+
+## Add to an existing project
+
+If you already have a Zig project and want to add zzz as a dependency:
+
+1. Add the dependency to your `build.zig.zon`:
+
+```zig
+.dependencies = .{
+    .zzz = .{
+        .url = "https://github.com/seemsindie/zzz.zig/archive/refs/tags/v0.1.0.tar.gz",
+        .hash = "...", // zig build will tell you the expected hash
+    },
+},
+```
+
+2. Wire it up in `build.zig`:
+
+```zig
+const zzz_dep = b.dependency("zzz", .{
+    .target = target,
+    .optimize = optimize,
+});
+
+exe.root_module.addImport("zzz", zzz_dep.module("zzz"));
+```
+
+3. Import and use:
+
+```zig
+const zzz = @import("zzz");
+```
+
+## Optional dependencies
+
+| Package | What it adds | How to enable |
+|---------|-------------|---------------|
+| **zzz_db** | Database (SQLite & PostgreSQL) | Add `zzz_db` dependency |
+| **zzz_jobs** | Background job processing | Add `zzz_jobs` dependency |
+| **zzz_mailer** | Email sending | Add `zzz_mailer` dependency |
+| **zzz_template** | Template engine | Add `zzz_template` dependency |
+
+## Next steps
+
+- Follow the [Quick Start](/getting-started/quick-start/) tutorial
+- Learn about [Project Structure](/getting-started/project-structure/)
+- Explore [Routing](/core/routing/) and [Middleware](/core/middleware/)

@@ -1,0 +1,290 @@
+---
+title: "zzz.js Client"
+description: "Lightweight JavaScript client library for connecting to zzz WebSocket endpoints and channels from the browser, with auto-reconnect, heartbeats, and presence."
+---
+
+import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
+
+zzz.js is a lightweight JavaScript client library bundled with the zzz framework. It provides two connection modes: a low-level WebSocket wrapper with auto-reconnect, and a higher-level channel socket for topic-based pub/sub. The library also includes a fetch wrapper with automatic CSRF token handling.
+
+## Serving zzz.js
+
+The zzz.js file is embedded in the framework binary and served via the `zzzJs` middleware. Add it to your middleware stack and it will serve the JavaScript file at a configurable path.
+
+<Steps>
+
+1. **Add the middleware to your pipeline.**
+
+   ```zig
+   const zzz = @import("zzz");
+
+   const pipeline = zzz.Pipeline.define(&.{
+       zzz.zzzJs(.{}),  // Serves at /__zzz/zzz.js by default
+       // ... other middleware
+   });
+   ```
+
+2. **Include the script in your HTML.**
+
+   ```html
+   <script src="/__zzz/zzz.js"></script>
+   ```
+
+</Steps>
+
+### `ZzzJsConfig` options
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `path` | `[]const u8` | `"/__zzz/zzz.js"` | URL path to serve the JavaScript file at |
+| `max_age` | `u32` | `86400` | `Cache-Control` max-age in seconds (default: 1 day) |
+
+To customize the path:
+
+```zig
+zzz.zzzJs(.{ .path = "/assets/zzz.js", .max_age = 3600 }),
+```
+
+The middleware only responds to GET requests at the configured path. All other requests are passed through to the next handler.
+
+## Low-level WebSocket connection
+
+Use `Zzz.connect` for a raw WebSocket connection with auto-reconnect and exponential backoff. This connects to endpoints created with `Router.ws`.
+
+```javascript
+const ws = Zzz.connect("ws://localhost:9000/ws/echo", {
+  maxRetries: 10,   // default: 10
+  baseDelay: 1000,  // default: 1000ms
+  maxDelay: 30000,  // default: 30000ms
+});
+
+ws.on("open", () => {
+  console.log("Connected");
+  ws.send("Hello, server!");
+});
+
+ws.on("message", (data) => {
+  console.log("Received:", data);
+});
+
+ws.on("close", ({ code, reason }) => {
+  console.log("Disconnected:", code, reason);
+});
+
+ws.on("error", (err) => {
+  console.error("Error:", err);
+});
+
+// Later: intentionally close (stops auto-reconnect)
+ws.close();
+```
+
+### `Zzz.connect` API
+
+| Method / Property | Description |
+|---|---|
+| `ws.send(data)` | Send a message (only when connection is open) |
+| `ws.on(event, callback)` | Listen for events: `"open"`, `"message"`, `"close"`, `"error"` |
+| `ws.close(code?, reason?)` | Close the connection intentionally (default code: 1000) |
+| `ws.readyState` | Current WebSocket readyState (CONNECTING, OPEN, CLOSING, CLOSED) |
+
+### Auto-reconnect
+
+When the connection drops unexpectedly, `Zzz.connect` automatically reconnects with exponential backoff:
+
+- First retry: `baseDelay` ms (default 1s)
+- Each subsequent retry: doubles the delay, up to `maxDelay` (default 30s)
+- Stops after `maxRetries` attempts (default 10)
+- Calling `ws.close()` explicitly disables auto-reconnect
+
+## Channel socket
+
+Use `Zzz.socket` for topic-based pub/sub communication. This connects to endpoints created with `Router.channel`.
+
+### Connecting
+
+```javascript
+const socket = Zzz.socket("ws://localhost:9000/socket", {
+  heartbeatInterval: 30000,  // default: 30000ms
+  maxRetries: 10,
+  baseDelay: 1000,
+  maxDelay: 30000,
+});
+```
+
+### `Zzz.socket` options
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `heartbeatInterval` | `number` | `30000` | Milliseconds between heartbeat pings |
+| `maxRetries` | `number` | `10` | Max reconnect attempts |
+| `baseDelay` | `number` | `1000` | Base delay for exponential backoff (ms) |
+| `maxDelay` | `number` | `30000` | Maximum reconnect delay (ms) |
+
+### Socket API
+
+| Method / Property | Description |
+|---|---|
+| `socket.channel(topic, params?)` | Create a channel for a topic |
+| `socket.disconnect()` | Close the connection (stops heartbeats and reconnect) |
+| `socket.connected` | `true` if the WebSocket is currently open |
+
+### Joining channels
+
+```javascript
+const chat = socket.channel("room:lobby", { username: "Alice" });
+
+chat.join()
+  .then((response) => {
+    console.log("Joined successfully", response);
+  })
+  .catch((error) => {
+    console.log("Join failed", error);
+  });
+```
+
+The `channel()` call creates the channel object. The `join()` call sends the `phx_join` message and returns a Promise that resolves when the server replies with `"ok"` or rejects on `"error"`.
+
+### Channel API
+
+| Method | Description |
+|---|---|
+| `ch.join()` | Join the topic. Returns a Promise. |
+| `ch.leave()` | Leave the topic. Returns a Promise. |
+| `ch.push(event, payload?)` | Send an event to the server. Returns a Promise that resolves with the server reply. |
+| `ch.on(event, callback)` | Listen for server-pushed events. Returns the channel for chaining. |
+| `ch.off(event)` | Remove all listeners for an event. Returns the channel for chaining. |
+
+### Sending and receiving events
+
+```javascript
+const chat = socket.channel("room:lobby");
+
+// Listen for incoming messages
+chat.on("new_msg", (payload) => {
+  console.log("New message:", payload.body);
+});
+
+chat.on("user_joined", (payload) => {
+  console.log(payload.user, "joined the room");
+});
+
+// Join, then start sending
+chat.join().then(() => {
+  // Push an event to the server
+  chat.push("new_msg", { body: "Hello everyone!" });
+});
+```
+
+### Receiving presence updates
+
+When the server pushes presence data using the [Presence](/websockets/presence/) module, listen for the events on the channel:
+
+```javascript
+const chat = socket.channel("room:lobby");
+
+// Receive the full presence list
+chat.on("presence_state", (presences) => {
+  console.log("Current users:", presences);
+  // presences is an array: [{"key":"alice","meta":{"name":"Alice"}}, ...]
+});
+
+// Listen for individual join/leave events
+chat.on("user_joined", (payload) => {
+  console.log(payload.user, "joined");
+});
+
+chat.on("user_left", (payload) => {
+  console.log(payload.user, "left");
+});
+
+chat.join();
+```
+
+### Automatic reconnect and rejoin
+
+When the WebSocket connection drops and reconnects:
+
+1. The socket automatically re-establishes the WebSocket connection with exponential backoff
+2. Heartbeats resume
+3. All previously joined channels are automatically re-joined
+4. Queued messages (sent while disconnected) are flushed
+
+This means your application code only needs to call `join()` once.
+
+## Fetch wrapper
+
+`Zzz.fetch` is a thin wrapper around the native `fetch()` API that automatically attaches CSRF tokens for non-GET requests.
+
+```javascript
+// GET request (no CSRF needed)
+const response = await Zzz.fetch("/api/users");
+
+// POST with JSON body
+const result = await Zzz.fetch("/api/users", {
+  method: "POST",
+  json: { name: "Alice", email: "alice@example.com" },
+});
+
+// The json shorthand sets Content-Type and stringifies automatically
+```
+
+The CSRF token is read from a `<meta name="csrf-token">` tag in the document head. Non-GET/HEAD requests automatically include it as the `X-CSRF-Token` header.
+
+## Form submission
+
+`Zzz.formSubmit` submits a form via AJAX using `FormData`, with automatic CSRF handling:
+
+```javascript
+// By element reference
+const form = document.getElementById("my-form");
+const response = await Zzz.formSubmit(form);
+
+// By CSS selector
+const response = await Zzz.formSubmit("#my-form");
+```
+
+The method and action are read from the form element's attributes.
+
+## Complete example: chat client
+
+```html
+<script src="/__zzz/zzz.js"></script>
+<div id="messages"></div>
+<input id="input" type="text" placeholder="Type a message..." />
+<button id="send">Send</button>
+<div id="users">Online: <span id="user-list"></span></div>
+
+<script>
+  const socket = Zzz.socket("ws://localhost:9000/socket");
+  const chat = socket.channel("room:lobby");
+  const messages = document.getElementById("messages");
+
+  chat.on("new_msg", (payload) => {
+    const div = document.createElement("div");
+    div.textContent = payload.body;
+    messages.appendChild(div);
+  });
+
+  chat.on("presence_state", (presences) => {
+    const names = presences.map((p) => p.key).join(", ");
+    document.getElementById("user-list").textContent = names;
+  });
+
+  chat.join().then(() => {
+    console.log("Joined room:lobby");
+  });
+
+  document.getElementById("send").addEventListener("click", () => {
+    const input = document.getElementById("input");
+    chat.push("new_msg", { body: input.value });
+    input.value = "";
+  });
+</script>
+```
+
+## Next steps
+
+- [WebSockets Overview](/websockets/overview/) -- low-level WebSocket API on the server
+- [Channels](/websockets/channels/) -- define channel topics and event handlers on the server
+- [Presence](/websockets/presence/) -- track connected users on the server side

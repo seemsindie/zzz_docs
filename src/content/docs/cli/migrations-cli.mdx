@@ -1,0 +1,119 @@
+---
+title: Database Migrations
+description: Create, run, and roll back database migrations using the zzz migrate command.
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+The `zzz migrate` command manages database schema changes. It delegates to your application's built-in migration runner by invoking `zig build run` with migration flags, so migrations execute within your app's database context.
+
+## Usage
+
+```bash
+zzz migrate [subcommand]
+```
+
+| Subcommand | Description |
+|------------|-------------|
+| *(none)* or `up` | Run all pending migrations |
+| `rollback` | Roll back the last applied migration |
+| `status` | Display which migrations have been applied and which are pending |
+
+## Creating migrations
+
+Migrations are generated automatically when you use the model generator:
+
+```bash
+zzz gen model Post title:string body:text published:boolean
+# Generated: src/post.zig
+# Generated: priv/migrations/001_create_post.zig
+```
+
+Migration files live in `priv/migrations/` and follow a numbered naming convention (`001_create_post.zig`, `002_create_comment.zig`, etc.). Each file exports two functions:
+
+```zig
+const MigrationContext = @import("zzz_db").MigrationContext;
+
+pub fn up(ctx: *MigrationContext) !void {
+    try ctx.createTable("post", &.{
+        .{ .name = "id", .col_type = .integer, .primary_key = true, .auto_increment = true },
+        .{ .name = "title", .col_type = .text, .nullable = false },
+        .{ .name = "body", .col_type = .text, .nullable = false },
+        .{ .name = "published", .col_type = .boolean, .nullable = false },
+        .{ .name = "inserted_at", .col_type = .bigint, .nullable = false },
+        .{ .name = "updated_at", .col_type = .bigint, .nullable = false },
+    });
+}
+
+pub fn down(ctx: *MigrationContext) !void {
+    try ctx.dropTable("post");
+}
+```
+
+- **`up`** applies the migration (creates tables, adds columns, etc.).
+- **`down`** reverses it (drops tables, removes columns, etc.).
+
+## Running migrations
+
+<Steps>
+1. Make sure your database is configured. If you created the project with `--db=sqlite` or `--db=postgres`, the `DATABASE_URL` is already set in your `.env` file.
+
+2. Run all pending migrations:
+
+   ```bash
+   zzz migrate
+   ```
+
+   This is equivalent to `zzz migrate up`. The CLI runs `zig build run -- --migrate` under the hood, which builds your application and executes the migration runner.
+</Steps>
+
+## Rolling back
+
+To undo the most recently applied migration:
+
+```bash
+zzz migrate rollback
+```
+
+This calls `zig build run -- --migrate-rollback`, which invokes the `down` function of the last applied migration.
+
+## Checking status
+
+To see which migrations have been applied and which are still pending:
+
+```bash
+zzz migrate status
+```
+
+This calls `zig build run -- --migrate-status` and prints a table of migration names with their current state.
+
+## Writing migrations by hand
+
+You can also create migration files manually in `priv/migrations/`. Use a sequential number prefix to control execution order:
+
+```
+priv/migrations/
+  001_create_users.zig
+  002_create_posts.zig
+  003_add_email_to_users.zig
+```
+
+Each file must export `up` and `down` functions that accept a `*MigrationContext`. The context provides methods for common schema operations such as `createTable`, `dropTable`, `addColumn`, and `removeColumn`.
+
+## How it works
+
+The `zzz migrate` command does not connect to the database directly. Instead, it spawns `zig build run` with a special flag:
+
+| CLI command | Underlying invocation |
+|-------------|----------------------|
+| `zzz migrate` | `zig build run -- --migrate` |
+| `zzz migrate rollback` | `zig build run -- --migrate-rollback` |
+| `zzz migrate status` | `zig build run -- --migrate-status` |
+
+This means your application's `build.zig` and database configuration are always used, ensuring migrations run against the correct database with the correct environment settings.
+
+## Next steps
+
+- [Generate models](/cli/generators) to create migrations automatically
+- [Start the dev server](/cli/dev-server) after applying migrations
+- [CLI overview](/cli/overview) for the full list of commands

@@ -1,0 +1,322 @@
+---
+title: "Docker"
+description: "Containerize your zzz application with multi-stage Docker builds, minimal runtime images, and docker-compose."
+---
+
+import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+Zig produces statically-linked binaries, which makes Docker containerization straightforward. This page provides production-ready Dockerfile examples, docker-compose configurations, and best practices for running zzz applications in containers.
+
+## Multi-stage Dockerfile
+
+A multi-stage build keeps your final image small by separating the build environment (with the full Zig toolchain) from the runtime environment (just the binary).
+
+```dockerfile
+# ── Stage 1: Build ────────────────────────────────────────────────────
+FROM alpine:3.21 AS builder
+
+# Install Zig
+ARG ZIG_VERSION=0.14.0
+RUN apk add --no-cache curl xz && \
+    curl -fsSL "https://ziglang.org/download/${ZIG_VERSION}/zig-linux-$(uname -m)-${ZIG_VERSION}.tar.xz" \
+    | tar -xJ -C /usr/local && \
+    ln -s /usr/local/zig-linux-*-${ZIG_VERSION}/zig /usr/local/bin/zig
+
+WORKDIR /app
+
+# Copy dependency manifests first for better layer caching
+COPY build.zig build.zig.zon ./
+
+# Copy source code
+COPY src/ src/
+
+# Build release binary
+RUN zig build -Doptimize=ReleaseFast -Denv=prod
+
+# ── Stage 2: Runtime ──────────────────────────────────────────────────
+FROM alpine:3.21
+
+RUN apk add --no-cache ca-certificates tzdata && \
+    addgroup -S app && adduser -S app -G app
+
+WORKDIR /app
+
+# Copy the compiled binary from the builder stage
+COPY --from=builder /app/zig-out/bin/myapp ./myapp
+
+# Copy any runtime assets (static files, migrations, etc.)
+# COPY --from=builder /app/priv ./priv
+
+# Run as non-root user
+USER app
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD wget -qO- http://localhost:8080/health || exit 1
+
+ENTRYPOINT ["./myapp"]
+```
+
+### Build and run
+
+```bash
+docker build -t myapp:latest .
+docker run -p 8080:8080 --env-file .env.prod myapp:latest
+```
+
+## Runtime image options
+
+<Tabs>
+<TabItem label="Alpine (recommended)">
+Alpine Linux is the most common choice for Zig applications. At around 7 MB, it provides a minimal base with a package manager for adding `ca-certificates` and other utilities.
+
+```dockerfile
+FROM alpine:3.21
+RUN apk add --no-cache ca-certificates tzdata
+```
+</TabItem>
+<TabItem label="Distroless">
+Google's distroless images contain only the application and its runtime dependencies. They have no shell, no package manager, and a minimal attack surface.
+
+```dockerfile
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=builder /app/zig-out/bin/myapp /myapp
+ENTRYPOINT ["/myapp"]
+```
+
+Note: With distroless, you cannot use `wget` or `curl` for health checks. Use a TCP-based health check or a `/health` endpoint with Docker's built-in HTTP check support.
+</TabItem>
+<TabItem label="Scratch">
+The absolute smallest image -- contains nothing but your binary. Only works because Zig produces fully static binaries.
+
+```dockerfile
+FROM scratch
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY --from=builder /app/zig-out/bin/myapp /myapp
+ENTRYPOINT ["/myapp"]
+```
+
+Caveats: No shell for debugging, no health check utilities, no timezone data. Use this when image size is the top priority.
+</TabItem>
+</Tabs>
+
+## Docker Compose
+
+A full docker-compose setup with a PostgreSQL database and your zzz application:
+
+```yaml
+# docker-compose.yml
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "8080"
+      DATABASE_URL: "postgres://myapp:secret@db:5432/myapp_prod"
+      SECRET_KEY_BASE: "${SECRET_KEY_BASE}"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped
+
+  db:
+    image: postgres:17-alpine
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: myapp
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: myapp_prod
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U myapp"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+```
+
+### Running with docker-compose
+
+```bash
+# Start all services
+docker compose up -d
+
+# View logs
+docker compose logs -f app
+
+# Run database migrations
+docker compose exec app ./myapp migrate
+
+# Stop all services
+docker compose down
+
+# Stop and remove volumes (destroys data)
+docker compose down -v
+```
+
+## SQLite with Docker
+
+If your application uses SQLite, mount a volume for the database file so it persists across container restarts:
+
+```yaml
+services:
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "8080"
+      DATABASE_URL: "sqlite:/data/app.db"
+    volumes:
+      - appdata:/data
+    restart: unless-stopped
+
+volumes:
+  appdata:
+```
+
+## Environment variables
+
+Pass configuration to your container using any of these methods:
+
+<Tabs>
+<TabItem label="--env-file">
+```bash
+docker run --env-file .env.prod myapp:latest
+```
+
+This loads all variables from the file. The `.env.prod` file format is the same as the zzz `Env` loader format.
+</TabItem>
+<TabItem label="-e flags">
+```bash
+docker run \
+  -e HOST=0.0.0.0 \
+  -e PORT=8080 \
+  -e DATABASE_URL=postgres://... \
+  -e SECRET_KEY_BASE=your-secret \
+  myapp:latest
+```
+</TabItem>
+<TabItem label="Compose environment">
+```yaml
+services:
+  app:
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "8080"
+      # Reference host machine env vars
+      SECRET_KEY_BASE: "${SECRET_KEY_BASE}"
+```
+</TabItem>
+</Tabs>
+
+When using Docker, system environment variables take precedence over `.env` files inside the container (following the zzz `Env` precedence rules). This means you can bake defaults into the image and override them at runtime.
+
+## Health checks
+
+Implement a health check endpoint in your application:
+
+```zig
+const zzz = @import("zzz");
+
+fn healthCheck(ctx: *zzz.Context) !void {
+    ctx.json(.ok,
+        \\{"status": "ok"}
+    );
+}
+
+// Register in your router
+zzz.Router.get("/health", healthCheck);
+```
+
+Then configure the Docker health check to call it:
+
+```dockerfile
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD wget -qO- http://localhost:8080/health || exit 1
+```
+
+The `--start-period` gives your application time to initialize before health checks begin. Adjust this based on your application's startup time.
+
+## Build caching
+
+Optimize Docker build times by structuring your Dockerfile to maximize layer caching:
+
+<Steps>
+1. **Copy dependency files first** -- `build.zig` and `build.zig.zon` change less frequently than source code.
+
+2. **Fetch dependencies in a separate step** -- if your project uses `.zig.zon` dependencies, fetching them before copying source code prevents re-downloading on every code change.
+
+3. **Copy source code last** -- this is the layer that changes most often.
+</Steps>
+
+```dockerfile
+FROM alpine:3.21 AS builder
+
+ARG ZIG_VERSION=0.14.0
+RUN apk add --no-cache curl xz && \
+    curl -fsSL "https://ziglang.org/download/${ZIG_VERSION}/zig-linux-$(uname -m)-${ZIG_VERSION}.tar.xz" \
+    | tar -xJ -C /usr/local && \
+    ln -s /usr/local/zig-linux-*-${ZIG_VERSION}/zig /usr/local/bin/zig
+
+WORKDIR /app
+
+# Layer 1: dependency manifests (rarely change)
+COPY build.zig build.zig.zon ./
+
+# Layer 2: vendored dependencies (rarely change)
+COPY vendor/ vendor/
+
+# Layer 3: source code (changes frequently)
+COPY src/ src/
+
+RUN zig build -Doptimize=ReleaseFast -Denv=prod
+```
+
+## Production recommendations
+
+| Concern | Recommendation |
+|---------|---------------|
+| **Image size** | Use multi-stage builds; final image should be under 30 MB |
+| **Security** | Run as a non-root user; use read-only root filesystem where possible |
+| **Secrets** | Never bake secrets into the image; pass via environment variables or Docker secrets |
+| **Logging** | Write logs to stdout/stderr so Docker can capture them |
+| **Restart policy** | Use `restart: unless-stopped` or `restart: always` |
+| **Resource limits** | Set memory and CPU limits in your compose file or orchestrator |
+| **Signals** | Zig handles SIGTERM by default; ensure your application shuts down gracefully |
+
+### Read-only root filesystem
+
+For maximum security, run with a read-only filesystem and only mount writable volumes where needed:
+
+```yaml
+services:
+  app:
+    image: myapp:latest
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      - appdata:/data  # Only writable mount
+```
+
+## Next steps
+
+- [Deployment Overview](/deployment/overview/) -- production build, checklist, and deployment strategies
+- [Environment Config](/deployment/environment-config/) -- managing configuration across environments
+- [Observability](/advanced/observability/) -- logging, metrics, and tracing

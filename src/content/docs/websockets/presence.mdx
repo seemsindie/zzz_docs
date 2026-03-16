@@ -1,0 +1,192 @@
+---
+title: "Presence"
+description: "Track connected users across channels with real-time presence state, including join/leave detection and metadata."
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+Presence tracking lets you know which users are currently connected to a channel topic. Each presence entry has a **key** (typically a user ID) and **metadata** (a JSON object with arbitrary data like display names or status). The system automatically cleans up presence entries when connections close.
+
+## How it works
+
+The `Presence` module is a thread-safe, fixed-size registry (up to 512 entries) that maps `(socket, topic)` pairs to `(key, meta_json)` entries. When a socket disconnects, the channel middleware calls `Presence.untrackAll` to remove all of that socket's presence entries.
+
+## Tracking presence
+
+<Steps>
+
+1. **Track a user on join.** In your channel's `join` callback (or an event handler), call `Presence.track` with the socket, topic, a key, and metadata JSON.
+
+   ```zig
+   const zzz = @import("zzz");
+   const Presence = zzz.Presence;
+
+   fn roomJoin(socket: *zzz.Socket, topic: []const u8, payload: []const u8) zzz.JoinResult {
+       // Track this user's presence in the topic
+       _ = Presence.track(socket, topic, "user_42", "{\"name\":\"Alice\",\"status\":\"online\"}");
+       return .ok;
+   }
+   ```
+
+2. **Untrack on leave.** The channel middleware automatically calls `Presence.untrack` when a client sends `phx_leave`, and `Presence.untrackAll` when the WebSocket closes. You do not need to clean up manually.
+
+3. **Query the presence list.** Use `Presence.list` to get a JSON array of all presences for a topic.
+
+   ```zig
+   fn handleGetPresence(socket: *zzz.Socket, topic: []const u8, _: []const u8, _: []const u8) void {
+       var buf: [4096]u8 = undefined;
+       const presences = Presence.list(topic, &buf);
+       socket.push(topic, "presence_state", presences);
+   }
+   ```
+
+</Steps>
+
+## API reference
+
+### `Presence.track`
+
+```zig
+pub fn track(socket: *Socket, topic: []const u8, key: []const u8, meta_json: []const u8) bool
+```
+
+Track a socket's presence in a topic. If the same socket is already tracked in the same topic, the entry is updated (key and metadata are overwritten). Returns `true` on success, `false` if the registry is full or inputs exceed size limits.
+
+**Size limits:**
+
+| Field | Maximum length |
+|---|---|
+| `topic` | 128 bytes |
+| `key` | 64 bytes |
+| `meta_json` | 256 bytes |
+
+### `Presence.untrack`
+
+```zig
+pub fn untrack(socket: *Socket, topic: []const u8) void
+```
+
+Remove a socket's presence entry for a specific topic.
+
+### `Presence.untrackAll`
+
+```zig
+pub fn untrackAll(socket: *Socket) void
+```
+
+Remove all presence entries for a socket across all topics. Called automatically by the channel middleware when a WebSocket disconnects.
+
+### `Presence.list`
+
+```zig
+pub fn list(topic: []const u8, buf: []u8) []const u8
+```
+
+Returns a JSON array of all presence entries for a topic, written into the provided buffer. Each entry is an object with `key` and `meta` fields:
+
+```json
+[{"key":"user_42","meta":{"name":"Alice","status":"online"}},{"key":"user_7","meta":{"name":"Bob","status":"away"}}]
+```
+
+If there are no presences, returns `[]`.
+
+### `Presence.diff`
+
+```zig
+pub fn diff(topic: []const u8, buf: []u8) []const u8
+```
+
+Returns a JSON object with `joins` and `leaves` arrays. Currently performs a full sync (all current presences appear in `joins`, `leaves` is empty). Useful for sending initial presence state to a newly joined client:
+
+```json
+{"joins":[{"key":"user_42","meta":{"name":"Alice"}}],"leaves":[]}
+```
+
+## Practical example: chat with presence
+
+```zig
+const std = @import("std");
+const zzz = @import("zzz");
+const Presence = zzz.Presence;
+
+fn chatJoin(socket: *zzz.Socket, topic: []const u8, payload: []const u8) zzz.JoinResult {
+    // Get the username from assigns (set by auth middleware)
+    const username = socket.getAssign("username") orelse "anonymous";
+
+    // Build metadata JSON
+    var meta_buf: [256]u8 = undefined;
+    const meta = std.fmt.bufPrint(&meta_buf,
+        \\{{"name":"{s}","joined_at":"now"}}
+    , .{username}) catch return .@"error";
+
+    // Track presence
+    _ = Presence.track(socket, topic, username, meta);
+
+    // Send current presence state to the joining client
+    var buf: [4096]u8 = undefined;
+    const presences = Presence.list(topic, &buf);
+    socket.push(topic, "presence_state", presences);
+
+    // Notify others that someone joined
+    var notify_buf: [256]u8 = undefined;
+    const notify_payload = std.fmt.bufPrint(&notify_buf,
+        \\{{"user":"{s}"}}
+    , .{username}) catch return .ok;
+    socket.broadcastFrom(topic, "user_joined", notify_payload);
+
+    return .ok;
+}
+
+fn chatLeave(socket: *zzz.Socket, topic: []const u8) void {
+    const username = socket.getAssign("username") orelse "anonymous";
+
+    // Notify others that someone left
+    var buf: [256]u8 = undefined;
+    const payload = std.fmt.bufPrint(&buf,
+        \\{{"user":"{s}"}}
+    , .{username}) catch return;
+    socket.broadcastFrom(topic, "user_left", payload);
+}
+
+fn handleGetPresence(socket: *zzz.Socket, topic: []const u8, _: []const u8, _: []const u8) void {
+    var buf: [4096]u8 = undefined;
+    const presences = Presence.list(topic, &buf);
+    socket.push(topic, "presence_state", presences);
+}
+
+const chat_channel: zzz.ChannelDef = .{
+    .topic_pattern = "chat:*",
+    .join = &chatJoin,
+    .leave = &chatLeave,
+    .handlers = &.{
+        .{ .event = "get_presence", .handler = &handleGetPresence },
+    },
+};
+```
+
+## Automatic cleanup
+
+The channel middleware handles presence cleanup at two points:
+
+1. **`phx_leave` event** -- when a client explicitly leaves a topic, `Presence.untrack(socket, topic)` is called for that topic.
+2. **WebSocket close** -- when the connection drops (whether cleanly or abnormally), `Presence.untrackAll(socket)` is called to remove the socket from all topics.
+
+This means you never need to worry about stale presence entries from disconnected clients.
+
+## Capacity limits
+
+The presence system uses fixed-size arrays for predictable memory usage:
+
+| Resource | Limit |
+|---|---|
+| Total presence entries | 512 |
+| Topic name length | 128 bytes |
+| Key length | 64 bytes |
+| Metadata JSON length | 256 bytes |
+
+If you reach the 512-entry limit, `Presence.track` returns `false` and the entry is not recorded.
+
+## Next steps
+
+- [Channels](/websockets/channels/) -- define channel topics with join/leave handlers and event routing
+- [zzz.js Client](/websockets/zzz-js-client/) -- connect to channels and receive presence updates from the browser

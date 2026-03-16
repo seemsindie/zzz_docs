@@ -1,0 +1,204 @@
+---
+title: "Mailer Overview"
+description: "Introduction to zzz_mailer — email sending for the zzz web framework with adapter-based delivery, rate limiting, and telemetry."
+---
+
+import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+zzz_mailer provides a generic, adapter-based email sending system for zzz applications. It supports multiple delivery backends (SMTP, SendGrid, Mailgun), a development mailbox UI, rate limiting, telemetry hooks, and MIME message construction -- all with zero heap allocations in the core path.
+
+## Architecture
+
+The mailer is built around a generic `Mailer(Adapter)` type. You choose an adapter at comptime, and the mailer handles sending, rate limiting, and telemetry transparently:
+
+```
+Application  -->  Mailer(Adapter)  -->  SmtpAdapter / SendGridAdapter / DevAdapter / ...
+                    |       |
+              RateLimiter  Telemetry
+```
+
+## Adding the dependency
+
+<Steps>
+1. **Add `zzz_mailer` to your `build.zig.zon`**
+
+   ```zig
+   .dependencies = .{
+       .zzz_mailer = .{
+           .path = "../zzz_mailer",
+       },
+   },
+   ```
+
+2. **Wire it into `build.zig`**
+
+   ```zig
+   const zzz_mailer = b.dependency("zzz_mailer", .{
+       .target = target,
+       .optimize = optimize,
+   });
+   exe.root_module.addImport("zzz_mailer", zzz_mailer.module("zzz_mailer"));
+   ```
+</Steps>
+
+## Core types
+
+The main types you work with live in `zzz_mailer`:
+
+| Type | Description |
+|------|-------------|
+| `Email` | Represents a complete email message (from, to, cc, bcc, subject, bodies, attachments) |
+| `Address` | An email address with an optional display name |
+| `Attachment` | A file attachment with content type and disposition |
+| `Header` | A custom email header (name/value pair) |
+| `SendResult` | The result of a send operation (success, message_id, error_message) |
+| `Mailer(Adapter)` | Generic mailer parameterized by a delivery adapter |
+
+## Constructing an email
+
+Build an `Email` struct with the fields you need. All fields except `from` have sensible defaults:
+
+```zig
+const zzz_mailer = @import("zzz_mailer");
+const Email = zzz_mailer.Email;
+
+const email = Email{
+    .from = .{ .email = "noreply@example.com", .name = "My App" },
+    .to = &.{
+        .{ .email = "user@example.com", .name = "Alice" },
+        .{ .email = "other@example.com" },
+    },
+    .cc = &.{.{ .email = "cc@example.com" }},
+    .subject = "Welcome to My App",
+    .text_body = "Hello from My App!",
+    .html_body = "<h1>Hello from My App!</h1>",
+};
+```
+
+## Sending an email
+
+Create a `Mailer` with your chosen adapter, then call `send`:
+
+```zig
+const zzz_mailer = @import("zzz_mailer");
+const SmtpAdapter = zzz_mailer.SmtpAdapter;
+const Mailer = zzz_mailer.Mailer;
+
+var mailer = Mailer(SmtpAdapter).init(.{
+    .adapter = .{
+        .host = "smtp.example.com",
+        .port = 587,
+        .username = "apikey",
+        .password = "your-smtp-password",
+    },
+});
+defer mailer.deinit();
+
+const result = mailer.send(email, allocator);
+if (result.success) {
+    // Email sent, result.message_id contains the provider message ID
+} else {
+    // Failed, result.error_message describes the issue
+    std.log.err("Email failed: {s}", .{result.error_message orelse "unknown"});
+}
+```
+
+### Convenience type aliases
+
+zzz_mailer provides pre-configured type aliases so you do not need to specify the generic parameter every time:
+
+```zig
+const zzz_mailer = @import("zzz_mailer");
+
+// These are equivalent:
+var mailer1 = zzz_mailer.SmtpMailer.init(.{ .adapter = .{ ... } });
+var mailer2 = zzz_mailer.Mailer(zzz_mailer.SmtpAdapter).init(.{ .adapter = .{ ... } });
+```
+
+Available aliases: `SmtpMailer`, `SendGridMailer`, `MailgunMailer`, `DevMailer`, `TestMailer`, `LogMailer`.
+
+## Rate limiting
+
+Enable token-bucket rate limiting by passing a `rate_limit` configuration:
+
+```zig
+var mailer = Mailer(SmtpAdapter).init(.{
+    .adapter = .{ .host = "smtp.example.com" },
+    .rate_limit = .{ .max_per_second = 10.0 },
+});
+```
+
+When the rate limit is exceeded, the mailer blocks until a token becomes available. This prevents overloading your email provider.
+
+## Telemetry
+
+Attach telemetry handlers to observe email lifecycle events:
+
+```zig
+const zzz_mailer = @import("zzz_mailer");
+const Telemetry = zzz_mailer.Telemetry;
+
+fn onEmailEvent(event: zzz_mailer.Event) void {
+    switch (event) {
+        .email_sending => |e| std.log.info("Sending to {s}", .{e.subject}),
+        .email_sent => |r| std.log.info("Sent in {d}ms", .{r.duration_ms}),
+        .email_failed => |r| std.log.err("Failed: {s}", .{r.error_msg orelse "unknown"}),
+        .rate_limited => std.log.warn("Rate limited", .{}),
+        else => {},
+    }
+}
+
+var telemetry = Telemetry{};
+telemetry.attach(&onEmailEvent);
+
+var mailer = Mailer(SmtpAdapter).init(.{ .adapter = .{ ... } });
+mailer.telemetry = &telemetry;
+```
+
+The telemetry system emits these events:
+
+| Event | When |
+|-------|------|
+| `email_sending` | Before the adapter `send` is called |
+| `email_sent` | After a successful send (includes `duration_ms` and `message_id`) |
+| `email_failed` | After a failed send (includes `duration_ms` and `error_msg`) |
+| `rate_limited` | When an email is held by the rate limiter |
+
+## Using the mailer in a controller
+
+Here is a complete example of sending email from a zzz controller:
+
+```zig
+const std = @import("std");
+const zzz = @import("zzz");
+const zzz_mailer = @import("zzz_mailer");
+
+const Email = zzz_mailer.Email;
+const DevAdapter = zzz_mailer.DevAdapter;
+const DevMailer = zzz_mailer.DevMailer;
+
+var mailer: DevMailer = DevMailer.init(.{});
+
+fn sendWelcome(ctx: *zzz.Context) !void {
+    const email = Email{
+        .from = .{ .email = "noreply@example.com", .name = "Example App" },
+        .to = &.{.{ .email = "user@example.com", .name = "Test User" }},
+        .subject = "Welcome to our app!",
+        .text_body = "Hello from zzz_mailer!",
+        .html_body = "<h1>Welcome!</h1><p>Hello from zzz_mailer!</p>",
+    };
+
+    const result = mailer.send(email, ctx.allocator);
+    if (result.success) {
+        ctx.text(.ok, "Email sent!");
+    } else {
+        ctx.text(.internal_server_error, "Failed to send email");
+    }
+}
+```
+
+## Next steps
+
+- [Adapters](/mailer/adapters/) -- configure SMTP, SendGrid, Mailgun, and development adapters
+- [Email Templates](/mailer/templates/) -- build dynamic HTML and plain text email bodies
+- [Environment Config](/deployment/environment-config/) -- manage adapter credentials across environments

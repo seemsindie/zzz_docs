@@ -1,0 +1,184 @@
+---
+title: "Server Backends"
+description: "Understand the I/O backend abstraction in zzz, choose between the native zzz backend and the libhv event-loop backend, and configure server options for your deployment target."
+---
+
+import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
+
+zzz uses a pluggable backend architecture that lets you swap out the underlying I/O strategy at build time. The two available backends -- **zzz** (native, the default) and **libhv** (event-loop) -- each have different strengths depending on your target platform and workload.
+
+## Backend abstraction
+
+The backend selection happens entirely at compile time. The file `src/core/backend.zig` inspects a build option and resolves to one of two implementations:
+
+```zig
+pub const SelectedBackend = blk: {
+    if (std.mem.eql(u8, backend_name, "libhv")) {
+        break :blk @import("backends/libhv.zig");
+    } else {
+        break :blk @import("backends/zzz.zig");
+    }
+};
+```
+
+Both backends expose the same public interface -- a `listen(server, io)` function -- so the `Server` struct delegates to whichever backend is active without any runtime branching.
+
+## Available backends
+
+### Native zzz backend (default)
+
+The native backend uses Zig 0.16's `std.Io` networking layer with a **thread-pool + bounded queue** architecture:
+
+- A single **acceptor thread** calls `accept()` in a loop and pushes new connections onto a bounded queue.
+- A pool of **worker threads** pops connections from the queue and handles them.
+- Back-pressure is built in: when the queue is full, the acceptor blocks until a worker frees a slot.
+- The bounded queue uses POSIX `pthread_mutex_t` and `pthread_cond_t` for efficient blocking.
+
+This backend works on all platforms supported by Zig's `std.Io` (Linux, macOS, BSDs, Windows).
+
+### libhv backend
+
+The libhv backend wraps [libhv](https://github.com/ithewei/libhv), a C event-loop library that uses the most efficient I/O multiplexer available on the current platform:
+
+| Platform | I/O multiplexer |
+|----------|----------------|
+| Linux    | epoll          |
+| macOS / BSD | kqueue      |
+| Windows  | IOCP (overlapped I/O) |
+
+libhv uses a single-threaded event loop driven by callbacks (`onAccept`, `onRead`, `onClose`). Per-connection state is attached to each `hio_t` handle. This backend also provides built-in timer APIs and WebSocket heartbeat (ping) support through libhv's event loop.
+
+## Selecting a backend
+
+The backend is chosen at build time via the `-Dbackend` option.
+
+<Tabs>
+<TabItem label="Default (zzz)">
+
+```sh
+zig build run
+# or explicitly:
+zig build run -Dbackend=zzz
+```
+
+</TabItem>
+<TabItem label="libhv">
+
+```sh
+zig build run -Dbackend=libhv
+```
+
+</TabItem>
+</Tabs>
+
+The build system compiles the necessary C sources for libhv only when `backend=libhv` is specified, including platform-specific files (`epoll.c` on Linux, `kqueue.c` on macOS/BSD).
+
+## Server configuration
+
+Both backends share the same `Config` struct defined in `src/core/server.zig`:
+
+```zig
+pub const Config = struct {
+    host: []const u8 = "127.0.0.1",
+    port: u16 = 8888,
+    max_body_size: usize = 1024 * 1024,       // 1 MB
+    max_header_size: usize = 16384,            // 16 KB
+    read_timeout_ms: u32 = 30_000,             // 30 s
+    write_timeout_ms: u32 = 30_000,            // 30 s
+    keepalive_timeout_ms: u32 = 65_000,        // 65 s
+    worker_threads: u16 = 4,                   // 0 = single-threaded (zzz backend)
+    max_connections: u32 = 1024,
+    max_requests_per_connection: u32 = 100,
+    kernel_backlog: u31 = 128,
+    tls: ?TlsConfig = null,
+};
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `host` | Bind address | `"127.0.0.1"` |
+| `port` | Bind port | `8888` |
+| `max_body_size` | Maximum request body in bytes | 1 MB |
+| `max_header_size` | Maximum header block in bytes | 16 KB |
+| `read_timeout_ms` | Read timeout per request | 30 s |
+| `write_timeout_ms` | Write (send) timeout | 30 s |
+| `keepalive_timeout_ms` | Keep-alive idle timeout | 65 s |
+| `worker_threads` | Worker thread count (zzz backend; 0 = 1 thread) | 4 |
+| `max_connections` | Bounded queue capacity (zzz backend) | 1024 |
+| `max_requests_per_connection` | Max pipelined requests per connection | 100 |
+| `kernel_backlog` | TCP listen backlog (`SO_BACKLOG`) | 128 |
+| `tls` | Optional TLS certificate/key paths for HTTPS | `null` |
+
+### Backend-specific configuration
+
+Each backend also defines a `BackendConfig` struct for fine-tuning:
+
+<Tabs>
+<TabItem label="zzz backend">
+
+```zig
+pub const BackendConfig = struct {
+    pool_size: u16 = 0,          // 0 = auto-detect CPU count
+    queue_capacity: u32 = 1024,  // bounded queue size
+};
+```
+
+</TabItem>
+<TabItem label="libhv backend">
+
+```zig
+pub const BackendConfig = struct {
+    event_loop_count: u8 = 1,    // number of event loops
+};
+```
+
+</TabItem>
+</Tabs>
+
+## TLS configuration
+
+Both backends support TLS. Pass certificate and key file paths through the `tls` field:
+
+```zig
+const config: Server.Config = .{
+    .port = 443,
+    .tls = .{
+        .cert_file = "/etc/ssl/certs/server.crt",
+        .key_file = "/etc/ssl/private/server.key",
+    },
+};
+```
+
+The native zzz backend initializes an OpenSSL `SSL_CTX` and wraps each connection in TLS readers/writers. The libhv backend uses libhv's built-in SSL support (`hloop_create_ssl_server`).
+
+## Graceful shutdown
+
+Both backends respond to `SIGINT` and `SIGTERM` signals:
+
+1. The signal handler sets a `shutdown_flag` (atomic bool) on the server.
+2. The accept loop stops accepting new connections.
+3. Active connections are given up to 10 seconds to drain via `drainConnections()`.
+4. Worker threads (zzz) or the event loop (libhv) are shut down cleanly.
+
+The libhv backend additionally calls `hloop_stop()` to break out of the event loop.
+
+## Choosing the right backend
+
+| Consideration | zzz (native) | libhv |
+|--------------|-------------|-------|
+| **Architecture** | Thread pool + bounded queue | Single-threaded event loop |
+| **Concurrency model** | OS threads | Callbacks (non-blocking) |
+| **Platform I/O** | `std.Io` (portable) | epoll / kqueue / IOCP |
+| **WebSocket heartbeat** | Manual | Built-in via `hio_set_heartbeat` |
+| **Timer API** | Not included | `addTimer` / `removeTimer` / `resetTimer` |
+| **Dependencies** | None (pure Zig) | Vendored libhv C library |
+| **Best for** | Simple deployments, CPU-bound handlers | High connection counts, I/O-heavy workloads |
+
+For most applications, the default **zzz** backend is a solid choice. Switch to **libhv** when you need platform-native I/O multiplexing, built-in timer support, or are handling a large number of concurrent WebSocket connections.
+
+## Next steps
+
+- [Performance tuning](/advanced/performance/) -- optimize buffer sizes, compression, and connection settings
+- [Observability](/advanced/observability/) -- add structured logging, metrics, and health checks
+- [Deployment](/deployment/overview/) -- production deployment strategies
+- [Docker](/deployment/docker/) -- containerize your zzz application

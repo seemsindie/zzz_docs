@@ -1,0 +1,196 @@
+---
+title: Creating a New Project
+description: Use zzz new to scaffold a complete zzz web application with routing, configuration, Docker support, and optional database integration.
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+The `zzz new` command generates a ready-to-run project with a sensible directory structure, environment-based configuration, and optional database and Docker support.
+
+## Usage
+
+```bash
+zzz new <project_name> [options]
+```
+
+Project names may contain letters, numbers, underscores, hyphens, and dots.
+
+## Options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--db=<engine>` | `none` | Add database support. Values: `sqlite`, `postgres` (or `pg`), `none` |
+| `--full` | off | Scaffold a full-stack app with controllers, middleware, and static file serving |
+| `--api` | off | Scaffold an API-only app (no `templates/` or `public/` directories) |
+| `--docker=false` | `true` | Disable Docker file generation |
+
+## Getting started
+
+<Steps>
+1. Create the project:
+
+   ```bash
+   zzz new my_app
+   ```
+
+2. Enter the project directory and run:
+
+   ```bash
+   cd my_app
+   zig build run
+   ```
+
+3. Open your browser at `http://127.0.0.1:4000`.
+</Steps>
+
+## Generated directory structure
+
+The default scaffold creates the following layout:
+
+```
+my_app/
+  build.zig
+  build.zig.zon
+  .gitignore
+  .env
+  .env.example
+  Dockerfile
+  .dockerignore
+  docker-compose.yml
+  config/
+    config.zig          # Shared AppConfig struct
+    dev.zig             # Development defaults
+    prod.zig            # Production defaults
+    staging.zig         # Staging defaults
+  src/
+    main.zig            # Application entry point and router
+    controllers/
+  templates/
+  public/
+    css/style.css
+    js/app.js
+```
+
+### Variations
+
+When you pass `--api`, the `templates/` and `public/` directories are omitted and the generated `main.zig` contains a JSON-only API skeleton.
+
+When you pass `--full`, the scaffold includes pre-built controllers (`src/controllers/home.zig` and `src/controllers/api.zig`) and a full middleware stack with error handling, CORS, body parsing, sessions, CSRF protection, static file serving, and health checks.
+
+## Environment-based configuration
+
+Every generated project uses a two-layer configuration system:
+
+1. **Comptime defaults** -- defined in `config/dev.zig`, `config/prod.zig`, or `config/staging.zig`, selected at build time with the `-Denv` flag.
+2. **Runtime overrides** -- loaded from `.env` and system environment variables via `zzz.mergeWithEnv`.
+
+Select the environment when building:
+
+```bash
+zig build run               # uses config/dev.zig (default)
+zig build run -Denv=prod    # uses config/prod.zig
+zig build run -Denv=staging # uses config/staging.zig
+```
+
+The shared `AppConfig` struct in `config/config.zig` defines the available fields:
+
+```zig
+pub const AppConfig = struct {
+    host: []const u8 = "127.0.0.1",
+    port: u16 = 4000,
+    secret_key_base: []const u8 = "change-me-in-production",
+};
+```
+
+When `--db` is set, a `database_url` field is added automatically.
+
+## Database support
+
+### SQLite
+
+```bash
+zzz new my_app --db=sqlite
+```
+
+Sets `DATABASE_URL=sqlite:my_app.db` in the generated `.env` file and adds `database_url` to the config struct.
+
+### PostgreSQL
+
+```bash
+zzz new my_app --db=postgres
+```
+
+Sets `DATABASE_URL=postgres://zzz:zzz@localhost:5432/zzz_dev` and generates a `docker-compose.yml` that includes PostgreSQL 17 and Adminer services.
+
+## Docker support
+
+By default, every new project includes:
+
+- **Dockerfile** -- Multi-stage build that compiles with `ReleaseSafe` and produces a minimal Debian-based image.
+- **.dockerignore** -- Excludes `.env` files, Zig caches, and Git metadata.
+- **docker-compose.yml** -- Runs the application on port 4000 with a health check. When using `--db=postgres`, the compose file adds PostgreSQL and Adminer containers.
+
+To skip Docker files entirely:
+
+```bash
+zzz new my_app --docker=false
+```
+
+## Generated main.zig
+
+The default `main.zig` sets up a minimal router with a single route and request logging:
+
+```zig
+const std = @import("std");
+const zzz = @import("zzz");
+const app_config = @import("app_config");
+
+const Router = zzz.Router;
+const Context = zzz.Context;
+
+fn index(ctx: *Context) !void {
+    ctx.html(.ok,
+        \\<!DOCTYPE html>
+        \\<html>
+        \\<head><title>Welcome to Zzz</title></head>
+        \\<body>
+        \\  <h1>Welcome to Zzz!</h1>
+        \\  <p>Your new project is ready.</p>
+        \\</body>
+        \\</html>
+    );
+}
+
+const App = Router.define(.{
+    .middleware = &.{
+        zzz.logger,
+        zzz.healthCheck(.{}),
+    },
+    .routes = &.{
+        Router.get("/", index),
+    },
+});
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+    const io = init.io;
+
+    var env = try zzz.Env.init(allocator, .{});
+    defer env.deinit();
+
+    const config = zzz.mergeWithEnv(@TypeOf(app_config.config), app_config.config, &env);
+
+    var server = zzz.Server.init(allocator, .{
+        .host = config.host,
+        .port = config.port,
+    }, App.handler);
+
+    try server.listen(io);
+}
+```
+
+## Next steps
+
+- [Generate controllers, models, and channels](/cli/generators) for your new project
+- [Run database migrations](/cli/migrations-cli) if you used `--db`
+- [Start the development server](/cli/dev-server) with auto-reload

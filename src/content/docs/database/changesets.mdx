@@ -1,0 +1,296 @@
+---
+title: "Changesets"
+description: "Validate and track changes for form submissions with zzz_db changesets."
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+Changesets provide field validation and change tracking for processing user input before persisting to the database. They are particularly useful for handling form submissions in web applications -- cast raw string parameters into typed struct fields, validate constraints, and check for errors before inserting or updating.
+
+## What is a changeset?
+
+A changeset wraps a data struct and tracks:
+
+- **Changes** -- which fields have been modified from their defaults
+- **Errors** -- validation failures with field name and message
+- **Data** -- the current state of the struct with applied changes
+
+The typical flow is: create a changeset, cast parameters into it, run validations, then check if it is valid before persisting.
+
+## Creating a changeset
+
+Initialize a changeset with a default struct value:
+
+```zig
+const zzz_db = @import("zzz_db");
+
+const User = struct {
+    id: i64 = 0,
+    name: []const u8 = "",
+    email: []const u8 = "",
+    age: i32 = 0,
+    score: f64 = 0.0,
+};
+
+var cs = zzz_db.Changeset(User).init(.{});
+```
+
+You can also initialize from an existing record for updates:
+
+```zig
+var cs = zzz_db.Changeset(User).init(existing_user);
+```
+
+## Casting parameters
+
+The `cast` method takes a whitelist of allowed fields and a params object. Only whitelisted fields are accepted -- this prevents mass-assignment vulnerabilities. The params object must have a `get(key: []const u8) -> ?[]const u8` method.
+
+```zig
+const params = zzz_db.Changeset(User).StringMap{ .entries = &.{
+    .{ .key = "name", .value = "Alice" },
+    .{ .key = "email", .value = "alice@example.com" },
+    .{ .key = "age", .value = "30" },
+    .{ .key = "score", .value = "95.5" },
+} };
+
+var cs = zzz_db.Changeset(User).init(.{});
+_ = cs.cast(&.{ "name", "email", "age", "score" }, params);
+```
+
+Cast automatically converts string values to the correct field type:
+
+| Field type       | Conversion                                     |
+| ---------------- | ---------------------------------------------- |
+| `[]const u8`     | Used directly as-is                            |
+| `i64`, `i32`, etc | Parsed with `std.fmt.parseInt`                |
+| `f64`, `f32`     | Parsed with `std.fmt.parseFloat`               |
+| `bool`           | `"true"` or `"1"` becomes `true`, else `false` |
+
+Fields not present in params or not in the whitelist are left unchanged.
+
+## Validations
+
+All validation methods return `*Self`, so they can be chained:
+
+```zig
+var cs = zzz_db.Changeset(User).init(.{});
+_ = cs.cast(&.{ "name", "email", "age" }, params);
+_ = cs.validateRequired(&.{ "name", "email" });
+_ = cs.validateLength("name", .{ .min = 2, .max = 50 });
+_ = cs.validateFormat("email", "@", "must contain @");
+_ = cs.validateNumber("age", .{ .greater_than = 0, .less_than = 150 });
+```
+
+### validateRequired
+
+Checks that the specified fields have been changed (present in params) and, for string fields, are non-empty:
+
+```zig
+_ = cs.validateRequired(&.{ "name", "email" });
+```
+
+Error messages: `"is required"` (not changed) or `"can't be blank"` (empty string).
+
+### validateLength
+
+Validates string field length against min and/or max bounds:
+
+```zig
+_ = cs.validateLength("name", .{ .min = 2 });
+_ = cs.validateLength("name", .{ .max = 100 });
+_ = cs.validateLength("name", .{ .min = 2, .max = 100 });
+```
+
+Error messages: `"is too short"` or `"is too long"`.
+
+### validateFormat
+
+Checks if a string field contains a required substring:
+
+```zig
+_ = cs.validateFormat("email", "@", "must contain @");
+```
+
+The third argument is the error message displayed on failure.
+
+### validateNumber
+
+Validates numeric fields against range bounds:
+
+```zig
+_ = cs.validateNumber("age", .{ .greater_than = 0 });
+_ = cs.validateNumber("score", .{ .less_than = 100 });
+_ = cs.validateNumber("age", .{ .greater_than = 0, .less_than = 150 });
+```
+
+Error messages: `"must be greater than limit"` or `"must be less than limit"`.
+
+### validateInclusion
+
+Checks that a string value is one of an allowed set:
+
+```zig
+_ = cs.validateInclusion("role", &.{ "admin", "editor", "viewer" });
+```
+
+Error message: `"is not included in the list"`.
+
+### validateExclusion
+
+Checks that a string value is NOT in a disallowed set:
+
+```zig
+_ = cs.validateExclusion("username", &.{ "admin", "root", "system" });
+```
+
+Error message: `"is reserved"`.
+
+### Custom validators
+
+For validations not covered by the built-in methods, pass a function:
+
+```zig
+_ = cs.validate(&struct {
+    fn v(c: *zzz_db.Changeset(User)) void {
+        if (std.mem.eql(u8, c.data.name, "test")) {
+            c.addError("name", "cannot be 'test'");
+        }
+    }
+}.v);
+```
+
+## Constraint markers
+
+These methods mark fields for constraint checks that are enforced by the database rather than in application code:
+
+```zig
+_ = cs.uniqueConstraint("email");
+_ = cs.foreignKeyConstraint("department_id");
+```
+
+These are currently marker-only -- they signal intent but actual enforcement happens at INSERT/UPDATE time. If a database constraint violation occurs, you map the database error to a changeset error in your application code.
+
+## Manually setting fields
+
+Use `putChange` to set a field value directly, bypassing parameter casting:
+
+```zig
+_ = cs.putChange("name", "Bob");
+_ = cs.putChange("updated_at", std.time.timestamp());
+```
+
+This marks the field as changed and sets the value.
+
+## Checking validity
+
+### valid
+
+Returns `true` if no errors have been recorded:
+
+```zig
+if (cs.valid()) {
+    // safe to persist cs.data
+}
+```
+
+### getErrors
+
+Returns a slice of `FieldError` structs:
+
+```zig
+const errors = cs.getErrors();
+for (errors) |err| {
+    std.debug.print("{s}: {s}\n", .{ err.field, err.message });
+}
+```
+
+### errorsOn
+
+Check if a specific field has any errors:
+
+```zig
+if (cs.errorsOn("email")) {
+    // email has validation errors
+}
+```
+
+## Complete example
+
+<Steps>
+
+1. **Define the struct**
+
+    ```zig
+    const User = struct {
+        id: i64 = 0,
+        name: []const u8 = "",
+        email: []const u8 = "",
+        age: i32 = 0,
+    };
+    ```
+
+2. **Create and populate the changeset**
+
+    ```zig
+    var cs = zzz_db.Changeset(User).init(.{});
+    _ = cs.cast(&.{ "name", "email", "age" }, params);
+    ```
+
+3. **Run validations**
+
+    ```zig
+    _ = cs.validateRequired(&.{ "name", "email" });
+    _ = cs.validateLength("name", .{ .min = 2, .max = 50 });
+    _ = cs.validateFormat("email", "@", "must contain @");
+    _ = cs.validateNumber("age", .{ .greater_than = 0, .less_than = 150 });
+    ```
+
+4. **Check and persist**
+
+    ```zig
+    if (cs.valid()) {
+        var user = try repo.insert(User, cs.data, allocator);
+        defer zzz_db.freeOne(User, &user, allocator);
+        // success
+    } else {
+        const errors = cs.getErrors();
+        // render form with errors
+    }
+    ```
+
+</Steps>
+
+## Using with web forms
+
+In a zzz web handler, you can cast request parameters directly into a changeset. Any object with a `get(key) -> ?[]const u8` method works as params:
+
+```zig
+fn createUser(ctx: *zzz.Context) !void {
+    var cs = zzz_db.Changeset(User).init(.{});
+    _ = cs.cast(&.{ "name", "email", "age" }, ctx.params());
+    _ = cs.validateRequired(&.{ "name", "email" });
+    _ = cs.validateFormat("email", "@", "must contain @");
+
+    if (cs.valid()) {
+        var user = try repo.insert(User, cs.data, ctx.allocator);
+        defer zzz_db.freeOne(User, &user, ctx.allocator);
+        ctx.redirect("/users", .see_other);
+    } else {
+        // Re-render form with cs.getErrors()
+        try ctx.render(FormTemplate, .ok, .{
+            .errors = cs.getErrors(),
+            .data = cs.data,
+        });
+    }
+}
+```
+
+## Error capacity
+
+Changesets store up to 32 errors. If more than 32 validation failures occur, additional errors are silently dropped. This limit is sufficient for typical form validation scenarios.
+
+## Next steps
+
+- [Repository](/database/repository/) -- persist changeset data with insert and update
+- [Schema](/database/schema/) -- define the structs that changesets validate
+- [Query Builder](/database/query-builder/) -- query records after persisting

@@ -1,0 +1,191 @@
+---
+title: "WebSockets Overview"
+description: "Real-time bidirectional communication with WebSockets in zzz, including upgrade middleware, connection handling, and sending or receiving messages."
+---
+
+import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
+
+zzz includes built-in WebSocket support with automatic HTTP upgrade, frame encoding/decoding (including per-message deflate compression), fragmented message reassembly, and a callback-driven API. You can set up a WebSocket endpoint in just a few lines.
+
+## How it works
+
+When a client sends an HTTP request with WebSocket upgrade headers, zzz's WebSocket middleware validates the request, responds with `101 Switching Protocols`, and hands off the connection to your callback handlers. The framework manages the frame loop, ping/pong heartbeats, close handshake, and fragmented messages automatically.
+
+## Setting up a WebSocket route
+
+<Steps>
+
+1. **Define your callbacks.** Write functions for the events you care about: `on_open`, `on_message`, and `on_close`. All three are optional.
+
+   ```zig
+   const zzz = @import("zzz");
+
+   fn onOpen(ws: *zzz.WebSocket) void {
+       std.log.info("client connected", .{});
+   }
+
+   fn onMessage(ws: *zzz.WebSocket, msg: zzz.WsMessage) void {
+       switch (msg) {
+           .text => |text| {
+               // Echo the message back
+               ws.send(text);
+           },
+           .binary => |data| {
+               ws.sendBinary(data);
+           },
+       }
+   }
+
+   fn onClose(_: *zzz.WebSocket, code: u16, reason: []const u8) void {
+       std.log.info("client disconnected (code: {d})", .{code});
+   }
+   ```
+
+2. **Register the route.** Use `Router.ws` to create a GET route that automatically upgrades to WebSocket.
+
+   ```zig
+   const routes = &.{
+       zzz.Router.ws("/ws/echo", .{
+           .on_open = &onOpen,
+           .on_message = &onMessage,
+           .on_close = &onClose,
+       }),
+   };
+   ```
+
+3. **That's it.** The framework handles the HTTP upgrade handshake, Sec-WebSocket-Key validation, and the frame read loop. Your callbacks fire when events occur.
+
+</Steps>
+
+## The `WebSocket` handle
+
+Every callback receives a `*zzz.WebSocket` pointer. This is your connection handle for sending data and reading connection metadata.
+
+### Sending messages
+
+| Method | Description |
+|---|---|
+| `ws.send(data)` | Send a UTF-8 text frame |
+| `ws.sendBinary(data)` | Send a binary frame |
+| `ws.close(code, reason)` | Initiate a close handshake with a status code and reason string |
+
+All write methods are mutex-protected, so you can safely call `send` from any thread (for example, when broadcasting from another connection's callback).
+
+```zig
+fn onMessage(ws: *zzz.WebSocket, msg: zzz.WsMessage) void {
+    switch (msg) {
+        .text => |text| {
+            // Send a text response
+            ws.send("received your message");
+        },
+        .binary => |data| {
+            // Send binary data
+            ws.sendBinary(data);
+        },
+    }
+}
+```
+
+### Receiving messages
+
+The `on_message` callback receives a `zzz.WsMessage`, which is a tagged union:
+
+```zig
+pub const Message = union(enum) {
+    text: []const u8,
+    binary: []const u8,
+};
+```
+
+Use a `switch` to handle each variant. The payload slices are valid for the duration of the callback.
+
+### Accessing request data
+
+Route parameters, query parameters, and assigns from earlier middleware are copied into the WebSocket and available throughout the connection lifetime:
+
+```zig
+fn onOpen(ws: *zzz.WebSocket) void {
+    // Route parameter from a pattern like "/ws/chat/:room"
+    const room = ws.param("room") orelse "default";
+
+    // Query string parameter from "?token=abc"
+    const token = ws.queryParam("token");
+
+    // Assign set by authentication middleware
+    const user = ws.getAssign("user_id");
+}
+```
+
+## The `WsConfig` struct
+
+The `WsConfig` struct configures which callbacks to attach. All fields are optional and default to `null`.
+
+| Field | Type | Description |
+|---|---|---|
+| `on_open` | `?*const fn (*WebSocket) void` | Called once after the upgrade completes |
+| `on_message` | `?*const fn (*WebSocket, Message) void` | Called for each text or binary message |
+| `on_close` | `?*const fn (*WebSocket, u16, []const u8) void` | Called when the connection closes (receives close code and reason) |
+
+## Close codes
+
+The `on_close` callback receives a standard WebSocket close code:
+
+| Code | Meaning |
+|---|---|
+| `1000` | Normal closure |
+| `1001` | Going away (e.g., server shutdown) |
+| `1002` | Protocol error |
+| `1005` | No status code present |
+| `1006` | Abnormal closure (connection dropped without close frame) |
+| `1007` | Invalid data (e.g., decompression failure) |
+| `1011` | Internal server error |
+
+## Full example: echo server
+
+```zig
+const std = @import("std");
+const zzz = @import("zzz");
+
+fn echoOpen(ws: *zzz.WebSocket) void {
+    _ = ws;
+    std.log.info("[WS] client connected", .{});
+}
+
+fn echoMessage(ws: *zzz.WebSocket, msg: zzz.WsMessage) void {
+    switch (msg) {
+        .text => |text| {
+            std.log.info("[WS] echo: {s}", .{text});
+            ws.send(text);
+        },
+        .binary => |data| {
+            ws.sendBinary(data);
+        },
+    }
+}
+
+fn echoClose(_: *zzz.WebSocket, code: u16, _: []const u8) void {
+    std.log.info("[WS] client disconnected (code: {d})", .{code});
+}
+
+pub const ctrl = zzz.Controller.define(.{}, &.{
+    zzz.Router.ws("/ws/echo", .{
+        .on_open = &echoOpen,
+        .on_message = &echoMessage,
+        .on_close = &echoClose,
+    }),
+});
+```
+
+## Features handled automatically
+
+The zzz WebSocket implementation takes care of several protocol details for you:
+
+- **Ping/pong** -- incoming ping frames are automatically answered with pong frames carrying the same payload.
+- **Fragmented messages** -- fragmented text and binary messages are reassembled before your `on_message` callback fires.
+- **Per-message deflate** -- if the client negotiates the `permessage-deflate` extension, zzz compresses outgoing data frames and decompresses incoming ones transparently.
+- **Close handshake** -- when the client sends a close frame, zzz echoes it and invokes your `on_close` callback. If the connection drops without a close frame, `on_close` fires with code `1006`.
+
+## Next steps
+
+- [Channels](/websockets/channels/) -- higher-level topic-based pub/sub with event routing, built on top of WebSockets
+- [zzz.js Client](/websockets/zzz-js-client/) -- connect to WebSocket endpoints from the browser with auto-reconnect

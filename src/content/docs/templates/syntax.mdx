@@ -1,0 +1,258 @@
+---
+title: "Template Syntax"
+description: "Complete reference for zzz template syntax -- variable interpolation, HTML escaping, conditionals, loops, with blocks, comments, raw blocks, and dot notation."
+---
+
+import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
+
+The zzz template engine uses a Mustache-inspired syntax with double and triple curly braces. All templates are parsed at compile time, so syntax errors produce compiler diagnostics rather than runtime failures.
+
+## Delimiters at a glance
+
+| Syntax | Purpose | HTML escaped |
+| --- | --- | --- |
+| `{{variable}}` | Output a value | Yes |
+| `{{{variable}}}` | Output a value without escaping | No |
+| `{{! comment }}` | Comment (no output) | -- |
+| `{{#if cond}}...{{/if}}` | Conditional block | -- |
+| `{{#if cond}}...{{else}}...{{/if}}` | Conditional with else | -- |
+| `{{#each items}}...{{/each}}` | Loop over a slice | -- |
+| `{{#with expr}}...{{/with}}` | Scope into a nested struct | -- |
+| `{{> partial}}` | Include a partial template | -- |
+| `{{{{raw}}}}...{{{{/raw}}}}` | Raw block (no tag processing) | No |
+
+## Variable interpolation
+
+Use double braces to output a value. The value is automatically HTML-escaped to prevent XSS:
+
+```html
+<h1>{{title}}</h1>
+<p>Written by {{author}}</p>
+```
+
+```zig
+try ctx.render(PageTemplate, .ok, .{
+    .title = "My Post",
+    .author = "Alice",
+});
+```
+
+**Output:**
+```html
+<h1>My Post</h1>
+<p>Written by Alice</p>
+```
+
+### HTML escaping
+
+Double-brace variables escape the following characters:
+
+| Character | Escaped to |
+| --- | --- |
+| `&` | `&amp;` |
+| `<` | `&lt;` |
+| `>` | `&gt;` |
+| `"` | `&quot;` |
+| `'` | `&#x27;` |
+
+For example, if `content` is `<script>alert('xss')</script>`, then `{{content}}` renders as:
+
+```
+&lt;script&gt;alert(&#x27;xss&#x27;)&lt;/script&gt;
+```
+
+### Raw (unescaped) output
+
+Use triple braces when you need to output trusted HTML without escaping:
+
+```html
+<div class="content">{{{body_html}}}</div>
+```
+
+Only use `{{{...}}}` for values you control (such as pre-rendered HTML from your own code). Never use it for user-supplied input.
+
+### Integer values
+
+Both string (`[]const u8`) and integer fields are supported. Integer values are automatically formatted to their decimal string representation:
+
+```html
+<p>Count: {{count}}</p>
+```
+
+```zig
+try ctx.render(Tmpl, .ok, .{ .count = @as(u32, 42) });
+// Output: <p>Count: 42</p>
+```
+
+## Dot notation
+
+Access nested struct fields using dot-separated paths:
+
+```html
+<p>{{user.name}} ({{user.email}})</p>
+```
+
+```zig
+try ctx.render(Tmpl, .ok, .{
+    .user = .{ .name = "Alice", .email = "alice@example.com" },
+});
+// Output: <p>Alice (alice@example.com)</p>
+```
+
+Dot paths can be arbitrarily deep: `{{profile.address.city}}` resolves `@field(@field(@field(data, "profile"), "address"), "city")` at comptime.
+
+## Conditionals
+
+### Basic `if`
+
+Render a block only when a condition is truthy:
+
+```html
+{{#if show_banner}}
+  <div class="banner">Welcome back!</div>
+{{/if}}
+```
+
+### `if` / `else`
+
+Provide an alternative when the condition is falsy:
+
+```html
+{{#if logged_in}}
+  <span>Welcome, {{username}}!</span>
+{{else}}
+  <a href="/login">Log in</a>
+{{/if}}
+```
+
+### Truthiness rules
+
+The template engine evaluates truthiness based on the Zig type of the field:
+
+| Type | Truthy when |
+| --- | --- |
+| `bool` | `true` |
+| `?T` (optional) | Not `null` |
+| `[]const T` (slice) | `len > 0` |
+| Any other type | Always truthy |
+
+This means you can use optionals and slices directly in conditions without converting to bool:
+
+```html
+{{#if items}}
+  <p>You have items in your cart.</p>
+{{else}}
+  <p>Your cart is empty.</p>
+{{/if}}
+```
+
+```zig
+const empty: []const Item = &.{};
+try ctx.render(Tmpl, .ok, .{ .items = empty });
+// Renders the else branch because the slice is empty
+```
+
+## Loops
+
+Iterate over a slice with `{{#each}}`. Inside the loop body, the context switches to each element:
+
+```html
+<ul>
+{{#each items}}
+  <li>{{name}} - {{price}}</li>
+{{/each}}
+</ul>
+```
+
+```zig
+const Item = struct { name: []const u8, price: []const u8 };
+const items = [_]Item{
+    .{ .name = "Widget", .price = "$9.99" },
+    .{ .name = "Gadget", .price = "$19.99" },
+};
+try ctx.render(Tmpl, .ok, .{
+    .items = @as([]const Item, &items),
+});
+```
+
+**Output:**
+```html
+<ul>
+  <li>Widget - $9.99</li>
+  <li>Gadget - $19.99</li>
+</ul>
+```
+
+The collection field must be a slice (`[]const T`) or a pointer to an array. Inside the loop body, all tags resolve against the element type `T` rather than the root data struct.
+
+## With blocks
+
+The `{{#with}}` block changes the scope to a nested field, reducing repetition when accessing deeply nested data:
+
+```html
+{{#with user}}
+  <p>{{name}} -- {{email}}</p>
+{{/with}}
+```
+
+This is equivalent to:
+
+```html
+<p>{{user.name}} -- {{user.email}}</p>
+```
+
+`{{#with}}` also works with dot paths:
+
+```html
+{{#with profile.address}}
+  <p>{{city}}, {{state}}</p>
+{{/with}}
+```
+
+## Comments
+
+Comments produce no output. Use them for documentation inside templates:
+
+```html
+{{! This section shows the user profile }}
+<div class="profile">
+  {{name}}
+</div>
+```
+
+The comment content (everything between `{{!` and `}}`) is discarded during rendering.
+
+## Raw blocks
+
+Raw blocks pass their content through without any template processing. This is useful when you need to include literal curly braces in your output, such as client-side template syntax or code examples:
+
+```html
+{{{{raw}}}}
+  This {{will not}} be processed as a variable.
+  Neither will {{{this}}} or {{#if anything}}.
+{{{{/raw}}}}
+```
+
+**Output:**
+```
+  This {{will not}} be processed as a variable.
+  Neither will {{{this}}} or {{#if anything}}.
+```
+
+Only `{{{{raw}}}}` is supported as the block name for raw blocks.
+
+## Compile-time safety
+
+Because templates are parsed at compile time, you get immediate feedback on errors:
+
+- **Unclosed tags** -- `{{name` without `}}` produces a compile error
+- **Unclosed blocks** -- `{{#if show}}` without `{{/if}}` produces a compile error
+- **Missing fields** -- referencing `{{nonexistent}}` with a data struct that lacks that field produces a compile error
+- **Type mismatches** -- using `{{#each}}` on a non-slice field produces a compile error
+- **Unresolved partials** -- `{{> name}}` without providing the partial source produces a compile error
+
+## Next steps
+
+- [Layouts and Partials](/templates/layouts-and-partials/) -- define reusable layouts and include partial templates
+- [Pipes and Helpers](/templates/pipes-and-helpers/) -- transform values with built-in pipe filters
+- [htmx Integration](/templates/htmx/) -- use templates with htmx for partial rendering

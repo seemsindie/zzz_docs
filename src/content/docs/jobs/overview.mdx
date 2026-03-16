@@ -1,0 +1,179 @@
+---
+title: "Background Jobs Overview"
+description: "Introduction to zzz_jobs — background job processing for the zzz web framework with in-memory and database-backed queues, retry strategies, cron scheduling, and telemetry."
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+zzz_jobs is a background job processing library for the zzz ecosystem. It lets you define work as discrete jobs, enqueue them from your request handlers, and process them asynchronously in worker threads. Jobs survive failures through configurable retry strategies, can be scheduled with cron expressions, and emit telemetry events for observability.
+
+## Architecture
+
+The library is built around four core concepts:
+
+| Concept | Description |
+|---|---|
+| **Supervisor** | Manages worker threads, polls the store for available jobs, and coordinates graceful shutdown. One supervisor per application. |
+| **Store** | Persists job state. `MemoryStore` keeps everything in-process (good for development and simple deployments). `DbStore` persists to SQLite or PostgreSQL via zzz_db. |
+| **Worker** | A named handler function that processes a specific kind of job. Workers are registered with the supervisor before it starts. |
+| **Job** | A unit of work: a worker name, serialized arguments, priority, retry configuration, and lifecycle state. |
+
+## Job states
+
+Every job moves through a well-defined state machine:
+
+```
+available --> executing --> completed
+                       \--> retryable --> available (after backoff delay)
+                       \--> discarded (max attempts exceeded)
+                       \--> cancelled
+
+scheduled --> available (when scheduled_at time arrives)
+```
+
+| State | Value | Meaning |
+|---|---|---|
+| `available` | 0 | Ready to be claimed by a worker thread |
+| `executing` | 1 | Currently being processed |
+| `completed` | 2 | Finished successfully |
+| `retryable` | 3 | Failed but has remaining attempts |
+| `discarded` | 4 | Failed and exhausted all retry attempts |
+| `cancelled` | 5 | Manually cancelled or replaced by a unique job |
+| `scheduled` | 6 | Waiting for its `scheduled_at` timestamp |
+
+## Adding the dependency
+
+Add `zzz_jobs` to your project's `build.zig.zon`:
+
+```zig
+.dependencies = .{
+    .zzz_jobs = .{
+        .path = "../zzz_jobs",
+    },
+},
+```
+
+Then wire it into your `build.zig`:
+
+```zig
+const zzz_jobs_dep = b.dependency("zzz_jobs", .{
+    .target = target,
+    .optimize = optimize,
+});
+exe.root_module.addImport("zzz_jobs", zzz_jobs_dep.module("zzz_jobs"));
+```
+
+For database-backed stores, pass the appropriate build flag:
+
+```zig
+const zzz_jobs_dep = b.dependency("zzz_jobs", .{
+    .target = target,
+    .optimize = optimize,
+    .sqlite = true,     // Enable SQLite backend
+    // .postgres = true, // Enable PostgreSQL backend
+});
+```
+
+## Quick start
+
+<Steps>
+
+1. **Define a worker function**
+
+    A worker is a function with the signature `fn ([]const u8, *zzz_jobs.JobContext) anyerror!void`. The first argument carries the serialized job payload; the second provides context about the current execution.
+
+    ```zig
+    const zzz_jobs = @import("zzz_jobs");
+
+    fn sendEmailWorker(args: []const u8, ctx: *zzz_jobs.JobContext) anyerror!void {
+        // args contains the serialized job payload (e.g. JSON)
+        _ = ctx;
+        // ... send the email using args ...
+    }
+    ```
+
+2. **Create and configure a supervisor**
+
+    ```zig
+    var supervisor = try zzz_jobs.MemorySupervisor.init(.{}, .{
+        .queues = &.{.{ .name = "default", .concurrency = 10 }},
+        .poll_interval_ms = 1000,
+    });
+    defer supervisor.deinit();
+    ```
+
+3. **Register workers**
+
+    ```zig
+    supervisor.registerWorker(.{
+        .name = "send_email",
+        .handler = &sendEmailWorker,
+        .retry_strategy = .{ .exponential = .{} },
+    });
+    ```
+
+4. **Enqueue jobs**
+
+    ```zig
+    _ = try supervisor.enqueue("send_email", "{\"to\": \"user@example.com\"}", .{
+        .queue = "default",
+        .priority = 0,
+        .max_attempts = 5,
+    });
+    ```
+
+5. **Start the supervisor**
+
+    ```zig
+    try supervisor.start();
+    // ... application runs, jobs are processed in background threads ...
+    supervisor.stop(); // graceful shutdown — waits for in-flight jobs
+    ```
+
+</Steps>
+
+## Key types at a glance
+
+```zig
+// The core job record
+pub const Job = struct {
+    id: i64,
+    state: JobState,
+    queue: []const u8,
+    worker: []const u8,
+    args: []const u8,
+    priority: i32,
+    attempt: i32,
+    max_attempts: i32,
+    scheduled_at: i64,
+    // ...
+};
+
+// Options when enqueuing a job
+pub const JobOpts = struct {
+    queue: []const u8 = "default",
+    priority: i32 = 0,
+    max_attempts: i32 = 20,
+    scheduled_at: ?i64 = null,
+    unique_key: ?[]const u8 = null,
+    unique_strategy: UniqueStrategy = .ignore_new,
+    timeout_seconds: i64 = 300,
+};
+
+// Worker definition registered with the supervisor
+pub const WorkerDef = struct {
+    name: []const u8,
+    handler: HandlerFn,
+    opts: JobOpts = .{},
+    retry_strategy: RetryStrategy = .{ .exponential = .{} },
+};
+```
+
+## Next steps
+
+- [Workers](/jobs/workers/) -- supervisor architecture, concurrency, and defining job handlers
+- [Queues and stores](/jobs/queues-and-stores/) -- choosing between `MemoryStore` and `DbStore`
+- [Retry strategies](/jobs/retry-strategies/) -- exponential, linear, constant backoff, and custom functions
+- [Cron scheduling](/jobs/cron/) -- recurring jobs with standard cron expressions
+- [Unique jobs](/jobs/unique-jobs/) -- deduplication with idempotency keys
+- [Telemetry](/jobs/telemetry/) -- observability hooks for job lifecycle events

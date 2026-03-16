@@ -1,0 +1,266 @@
+---
+title: "Pipes & Helpers"
+description: "Transform template values with pipes -- built-in filters for truncation, case conversion, defaults, pluralization, and date formatting, plus how to chain multiple pipes."
+---
+
+import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
+
+Pipes transform template values inline using the `|` operator. They are applied at runtime after the field value is resolved, and can be chained to compose multiple transformations.
+
+## Pipe syntax
+
+Add pipes after a variable name, separated by `|`:
+
+```html
+{{name | upper}}
+{{title | truncate:20}}
+{{bio | lower | truncate:100}}
+```
+
+Pipes work with both escaped (`{{ }}`) and raw (`{{{ }}}`) output:
+
+```html
+<!-- HTML-escaped after pipe -->
+{{content | truncate:50}}
+
+<!-- Raw output after pipe -->
+{{{content | truncate:50}}}
+```
+
+### Arguments
+
+Some pipes accept arguments after a colon:
+
+```html
+{{title | truncate:30}}
+```
+
+Quoted arguments use double quotes:
+
+```html
+{{name | default:"Anonymous"}}
+```
+
+Multiple arguments are separated by colons with each one quoted:
+
+```html
+{{count | pluralize:"item":"items"}}
+```
+
+## Built-in pipes
+
+### `upper`
+
+Converts all ASCII lowercase letters to uppercase.
+
+```html
+{{name | upper}}
+```
+
+| Input | Output |
+| --- | --- |
+| `hello` | `HELLO` |
+| `Hello World` | `HELLO WORLD` |
+| `123abc` | `123ABC` |
+
+### `lower`
+
+Converts all ASCII uppercase letters to lowercase.
+
+```html
+{{name | lower}}
+```
+
+| Input | Output |
+| --- | --- |
+| `HELLO` | `hello` |
+| `Hello World` | `hello world` |
+
+### `truncate`
+
+Truncates the value to the specified number of characters and appends `...` if the original was longer.
+
+```html
+{{title | truncate:20}}
+```
+
+| Input | Pipe | Output |
+| --- | --- | --- |
+| `Hello World` | `truncate:5` | `Hello...` |
+| `Hi` | `truncate:5` | `Hi` |
+
+The argument must be a positive integer. If the value is already shorter than the limit, it is returned unchanged.
+
+### `default`
+
+Returns a fallback value when the input is an empty string.
+
+```html
+{{nickname | default:"N/A"}}
+```
+
+| Input | Pipe | Output |
+| --- | --- | --- |
+| `""` (empty) | `default:"N/A"` | `N/A` |
+| `Alice` | `default:"N/A"` | `Alice` |
+
+The argument must be quoted with double quotes.
+
+### `pluralize`
+
+Appends the singular or plural form of a word based on a numeric input. Takes two quoted arguments: the singular form and the plural form.
+
+```html
+{{count | pluralize:"item":"items"}}
+```
+
+| Input | Pipe | Output |
+| --- | --- | --- |
+| `1` | `pluralize:"item":"items"` | `1 item` |
+| `3` | `pluralize:"item":"items"` | `3 items` |
+| `0` | `pluralize:"item":"items"` | `0 items` |
+
+The input value is parsed as an integer. If the count is exactly `1`, the singular form is used; otherwise the plural form is used. The output includes both the number and the word.
+
+`pluralize` works with both string and integer field values:
+
+```zig
+// String field
+try ctx.render(Tmpl, .ok, .{ .count = "3" });
+
+// Integer field
+try ctx.render(Tmpl, .ok, .{ .count = @as(u32, 3) });
+```
+
+### `format_date`
+
+Formats a Unix timestamp (seconds since epoch) into a human-readable date string. The format pattern uses these tokens:
+
+| Token | Meaning | Example |
+| --- | --- | --- |
+| `YYYY` | Four-digit year | `2023` |
+| `MM` | Two-digit month | `01`--`12` |
+| `MMM` | Abbreviated month name | `Jan`, `Feb`, ..., `Dec` |
+| `DD` | Two-digit day | `01`--`31` |
+| `HH` | Two-digit hour (24h) | `00`--`23` |
+| `mm` | Two-digit minute | `00`--`59` |
+| `ss` | Two-digit second | `00`--`59` |
+
+Any other characters in the pattern are passed through literally:
+
+```html
+{{created_at | format_date:"YYYY-MM-DD"}}
+{{updated_at | format_date:"MMM DD, YYYY"}}
+{{timestamp | format_date:"YYYY-MM-DD HH:mm:ss"}}
+```
+
+| Input (timestamp) | Pattern | Output |
+| --- | --- | --- |
+| `1699963200` | `YYYY-MM-DD` | `2023-11-14` |
+| `1699963200` | `MMM DD, YYYY` | `Nov 14, 2023` |
+| `1699963200` | `YYYY-MM-DD HH:mm:ss` | `2023-11-14 12:00:00` |
+
+If the input is not a valid integer, it is returned unchanged (passthrough).
+
+`format_date` accepts both string and integer timestamp fields:
+
+```zig
+// String timestamp
+try ctx.render(Tmpl, .ok, .{ .created_at = "1699963200" });
+
+// Integer timestamp
+try ctx.render(Tmpl, .ok, .{ .created_at = @as(i64, 1699963200) });
+```
+
+## Chaining pipes
+
+Multiple pipes are applied left to right. Each pipe receives the output of the previous one:
+
+```html
+{{name | upper | truncate:10}}
+```
+
+This first converts `name` to uppercase, then truncates to 10 characters.
+
+More examples:
+
+```html
+<!-- Uppercase then truncate -->
+{{title | upper | truncate:25}}
+
+<!-- Default then lowercase -->
+{{nickname | default:"anonymous" | lower}}
+```
+
+## HTML escaping with pipes
+
+When using double braces (`{{ }}`), HTML escaping is applied **after** all pipes have been processed:
+
+```html
+{{name | upper}}
+```
+
+If `name` is `<b>`, this produces `&lt;B&gt;` -- the pipe transforms to `<B>`, then escaping converts it to safe HTML entities.
+
+To skip escaping (for trusted content), use triple braces:
+
+```html
+{{{html_content | truncate:200}}}
+```
+
+## Unknown pipes
+
+If a pipe name does not match any built-in pipe, the value passes through unchanged. This is a compile-time-safe passthrough -- no error is raised, and the input value is returned as-is.
+
+## Complete example
+
+Here is a blog post template that uses multiple pipes:
+
+```html
+<article>
+  <h1>{{title | truncate:60}}</h1>
+  <p class="meta">
+    By {{author | upper}} |
+    {{created_at | format_date:"MMM DD, YYYY"}} |
+    {{comment_count | pluralize:"comment":"comments"}}
+  </p>
+  <div class="excerpt">
+    {{excerpt | default:"No excerpt available."}}
+  </div>
+</article>
+```
+
+```zig
+const BlogPost = zzz.template(@embedFile("../templates/post.html.zzz"));
+
+fn showPost(ctx: *zzz.Context) !void {
+    try ctx.render(BlogPost, .ok, .{
+        .title = "Building Web Apps with Zig and the Zzz Framework",
+        .author = "alice",
+        .created_at = "1699963200",
+        .comment_count = "5",
+        .excerpt = "",
+    });
+}
+```
+
+**Output:**
+```html
+<article>
+  <h1>Building Web Apps with Zig and the Zzz Framework</h1>
+  <p class="meta">
+    By ALICE |
+    Nov 14, 2023 |
+    5 comments
+  </p>
+  <div class="excerpt">
+    No excerpt available.
+  </div>
+</article>
+```
+
+## Next steps
+
+- [Template Syntax](/templates/syntax/) -- full syntax reference for variables, conditionals, and loops
+- [Layouts and Partials](/templates/layouts-and-partials/) -- compose templates with layouts and partial includes
+- [htmx Integration](/templates/htmx/) -- use pipes and partials with htmx for dynamic UIs

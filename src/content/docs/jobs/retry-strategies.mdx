@@ -1,0 +1,192 @@
+---
+title: "Retry Strategies"
+description: "How zzz_jobs handles failed jobs with exponential, linear, constant, and custom retry strategies, including max attempts and dead letter behavior."
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+When a worker handler returns an error, zzz_jobs does not immediately discard the job. Instead, it consults the retry strategy configured on the worker to compute a backoff delay, then re-schedules the job for a future attempt. This continues until the job either succeeds or exhausts its maximum attempts.
+
+## How retries work
+
+1. A worker handler returns an error.
+2. The store increments the job's `attempt` counter and records the error message.
+3. If `attempt >= max_attempts`, the job transitions to **discarded** (dead letter).
+4. Otherwise, the retry strategy computes a `scheduled_at` timestamp in the future. The job transitions back to **available** and will not be claimed until that time arrives.
+
+## RetryStrategy
+
+The `RetryStrategy` is a tagged union with four variants:
+
+```zig
+pub const RetryStrategy = union(enum) {
+    exponential: ExponentialBackoff,
+    linear: LinearBackoff,
+    constant: ConstantBackoff,
+    custom: *const fn (attempt: i32, base_delay: i64) i64,
+};
+```
+
+Retry strategies are set per worker at registration time:
+
+```zig
+supervisor.registerWorker(.{
+    .name = "my_worker",
+    .handler = &myHandler,
+    .retry_strategy = .{ .exponential = .{} }, // default
+});
+```
+
+## Built-in strategies
+
+<Tabs>
+<TabItem label="Exponential">
+
+Doubles the delay with each attempt, up to a configurable maximum. This is the default strategy.
+
+```zig
+.retry_strategy = .{ .exponential = .{
+    .base_seconds = 15,   // initial delay
+    .max_seconds = 3600,  // cap at 1 hour
+    .jitter = true,       // add randomized jitter
+} }
+```
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `base_seconds` | `i64` | `15` | Delay for the first retry |
+| `max_seconds` | `i64` | `3600` | Maximum delay (cap) |
+| `jitter` | `bool` | `true` | Add deterministic jitter (up to 25% of the computed delay) to spread out retries |
+
+**Delay formula:** `min(base_seconds * 2^attempt, max_seconds) + jitter`
+
+**Example delays** (no jitter, base=15, max=3600):
+
+| Attempt | Delay |
+|---|---|
+| 0 | 15s |
+| 1 | 30s |
+| 2 | 60s |
+| 3 | 120s |
+| 4 | 240s |
+| 5 | 480s |
+| 6 | 960s |
+| 7 | 1920s |
+| 8 | 3600s (capped) |
+
+</TabItem>
+<TabItem label="Linear">
+
+Increases the delay linearly with each attempt: `delay_seconds * (attempt + 1)`.
+
+```zig
+.retry_strategy = .{ .linear = .{
+    .delay_seconds = 60,
+} }
+```
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `delay_seconds` | `i64` | `60` | Base delay multiplied by the attempt number |
+
+**Example delays** (delay_seconds=60):
+
+| Attempt | Delay |
+|---|---|
+| 0 | 60s |
+| 1 | 120s |
+| 2 | 180s |
+| 3 | 240s |
+
+</TabItem>
+<TabItem label="Constant">
+
+Uses the same fixed delay for every retry, regardless of attempt number.
+
+```zig
+.retry_strategy = .{ .constant = .{
+    .delay_seconds = 30,
+} }
+```
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `delay_seconds` | `i64` | `30` | Fixed delay between every retry |
+
+Every retry waits exactly `delay_seconds`, making this suitable for transient failures where you expect quick recovery.
+
+</TabItem>
+<TabItem label="Custom">
+
+Provide your own function to compute the retry delay:
+
+```zig
+fn myRetryDelay(attempt: i32, base_delay: i64) i64 {
+    _ = base_delay;
+    // Fibonacci-style: 1, 2, 3, 5, 8, 13, ... minutes
+    const fibs = [_]i64{ 60, 120, 180, 300, 480, 780, 1260 };
+    const idx: usize = @intCast(@min(attempt, fibs.len - 1));
+    return fibs[idx];
+}
+
+supervisor.registerWorker(.{
+    .name = "my_worker",
+    .handler = &myHandler,
+    .retry_strategy = .{ .custom = &myRetryDelay },
+});
+```
+
+The custom function receives the current `attempt` (0-based) and returns the delay in seconds to add to the current time.
+
+</TabItem>
+</Tabs>
+
+## Max attempts
+
+The maximum number of attempts is controlled by `max_attempts` in `JobOpts`. It defaults to **20**. You can set it per-worker (via `WorkerDef.opts`) or per-job (when calling `enqueue`):
+
+```zig
+// Per-worker default
+supervisor.registerWorker(.{
+    .name = "fragile_worker",
+    .handler = &fragileHandler,
+    .opts = .{ .max_attempts = 3 },
+    .retry_strategy = .{ .constant = .{ .delay_seconds = 10 } },
+});
+
+// Per-job override (takes precedence)
+_ = try supervisor.enqueue("fragile_worker", "{}", .{
+    .max_attempts = 5,
+});
+```
+
+## Dead letter behavior
+
+When a job's `attempt` reaches `max_attempts`, it transitions to the **discarded** state. Discarded jobs remain in the store with their error message preserved in the `errors` field. They are not automatically deleted.
+
+To query discarded jobs:
+
+```zig
+const discarded_count = try supervisor.store.countByState("default", .discarded);
+```
+
+To clean up old completed jobs (this does not affect discarded jobs):
+
+```zig
+const deleted = try supervisor.store.deleteCompleted(cutoff_timestamp);
+```
+
+## Telemetry integration
+
+The supervisor emits different telemetry events depending on the retry outcome:
+
+- `job_failed` -- the job failed but will be retried (attempts remain)
+- `job_discarded` -- the job exhausted all attempts and was discarded
+
+Both events include the `duration_ms` and `error_msg` in the `JobResult` payload. See [Telemetry](/jobs/telemetry/) for details on subscribing to these events.
+
+## Next steps
+
+- [Workers and supervisors](/jobs/workers/) -- configuring workers and the execution lifecycle
+- [Unique jobs](/jobs/unique-jobs/) -- preventing duplicate work
+- [Telemetry](/jobs/telemetry/) -- monitoring job failures and retries

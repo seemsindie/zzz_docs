@@ -1,0 +1,236 @@
+---
+title: "Deployment Overview"
+description: "Build, configure, and deploy your zzz application to production."
+---
+
+import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+Zig produces statically-linked, single-binary executables with no runtime dependencies. This makes zzz applications straightforward to deploy -- copy the binary, set environment variables, and run.
+
+## Production build
+
+Build an optimized release binary with:
+
+```bash
+zig build -Doptimize=ReleaseFast
+```
+
+The resulting binary is in `zig-out/bin/`. It is a self-contained executable that includes all compiled templates, static assets (if embedded), and vendored C libraries.
+
+### Build optimization modes
+
+| Flag | Description | Use case |
+|------|-------------|----------|
+| `-Doptimize=ReleaseFast` | Maximum runtime performance | Production servers |
+| `-Doptimize=ReleaseSafe` | Optimized with safety checks (bounds checking, overflow detection) | Staging, security-sensitive deployments |
+| `-Doptimize=ReleaseSmall` | Minimize binary size | Containers, embedded |
+| (none) | Debug mode with full safety and debug info | Development only |
+
+For most production deployments, `ReleaseFast` is recommended. Use `ReleaseSafe` if you prefer catching undefined behavior at the cost of a small performance overhead.
+
+### Setting the environment
+
+Pass the target environment at build time with the `-Denv` option:
+
+```bash
+zig build -Doptimize=ReleaseFast -Denv=prod
+```
+
+The `Environment` enum recognizes these values:
+
+| Value | Aliases | Description |
+|-------|---------|-------------|
+| `dev` | `development` | Development mode (default) |
+| `prod` | `production` | Production mode |
+| `staging` | | Staging/pre-production |
+| `testing` | `test` | Test suite |
+
+## Environment configuration
+
+zzz uses `.env` files and system environment variables for runtime configuration. The `Env` loader follows this precedence (highest to lowest):
+
+1. System environment variables (via `getenv`)
+2. `.env.{environment}` entries (e.g., `.env.prod`)
+3. `.env` entries (base)
+
+See the [Environment Config](/deployment/environment-config/) page for full details.
+
+### Quick setup
+
+<Steps>
+1. **Create a `.env` file** with your base configuration:
+
+   ```bash
+   HOST=127.0.0.1
+   PORT=4000
+   DATABASE_URL=sqlite:data/app.db
+   ```
+
+2. **Create environment-specific overrides** in `.env.prod`:
+
+   ```bash
+   HOST=0.0.0.0
+   PORT=8080
+   DATABASE_URL=postgres://deploy@db.internal:5432/myapp_prod
+   ```
+
+3. **Load and merge in your application:**
+
+   ```zig
+   const zzz = @import("zzz");
+
+   const AppConfig = struct {
+       host: []const u8,
+       port: u16,
+       database_url: []const u8,
+   };
+
+   const defaults = AppConfig{
+       .host = "127.0.0.1",
+       .port = 4000,
+       .database_url = "sqlite:data/dev.db",
+   };
+
+   pub fn main() !void {
+       var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+       const allocator = gpa.allocator();
+
+       var result = try zzz.configInit(AppConfig, defaults, allocator, .{
+           .environment = "prod",
+       });
+       defer result.env.deinit();
+
+       const config = result.config;
+       // config.host == "0.0.0.0" (from .env.prod)
+       // config.port == 8080 (from .env.prod)
+   }
+   ```
+</Steps>
+
+## Production checklist
+
+Before deploying to production, verify each of the following:
+
+### Build and binary
+
+- [ ] Build with `-Doptimize=ReleaseFast` (or `ReleaseSafe`)
+- [ ] Build with `-Denv=prod`
+- [ ] Test the release binary locally before deploying
+- [ ] Verify the binary runs without any shared library dependencies (`ldd` on Linux, `otool -L` on macOS)
+
+### Configuration
+
+- [ ] All secrets (API keys, database passwords, SMTP credentials) are provided via environment variables or `.env.prod`, not hardcoded
+- [ ] `HOST` is set to `0.0.0.0` (to bind all interfaces) or the specific interface for your deployment
+- [ ] `PORT` is set appropriately for your reverse proxy or load balancer
+- [ ] `DATABASE_URL` points to the production database
+
+### Security
+
+- [ ] Application is behind a reverse proxy (nginx, Caddy, etc.) that handles TLS termination
+- [ ] Sensitive environment variables are not logged (the `Env.maskSensitive` method automatically masks keys containing `SECRET`, `PASSWORD`, `TOKEN`, `KEY`, `DATABASE_URL`, or `PRIVATE`)
+- [ ] CORS, CSRF, and rate limiting middleware are configured for production
+
+### Monitoring
+
+- [ ] Health check endpoint is available (e.g., `GET /health`)
+- [ ] Application logs are directed to a persistent location or log aggregator
+- [ ] Process manager (systemd, Docker, etc.) is configured to restart on failure
+
+## Deployment strategies
+
+<Tabs>
+<TabItem label="Direct binary">
+The simplest approach. Copy the binary and run it:
+
+```bash
+# Build
+zig build -Doptimize=ReleaseFast -Denv=prod
+
+# Deploy
+scp zig-out/bin/myapp server:/opt/myapp/
+ssh server 'cd /opt/myapp && PORT=8080 DATABASE_URL=postgres://... ./myapp'
+```
+
+Use a process manager like systemd to keep it running:
+
+```ini
+# /etc/systemd/system/myapp.service
+[Unit]
+Description=My zzz application
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/opt/myapp/myapp
+WorkingDirectory=/opt/myapp
+EnvironmentFile=/opt/myapp/.env.prod
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl enable --now myapp
+```
+</TabItem>
+<TabItem label="Docker">
+Build a minimal container image. See the [Docker](/deployment/docker/) page for complete examples.
+
+```bash
+docker build -t myapp:latest .
+docker run -p 8080:8080 --env-file .env.prod myapp:latest
+```
+</TabItem>
+<TabItem label="Reverse proxy">
+Place the application behind nginx or Caddy for TLS termination and static file serving:
+
+```nginx
+# /etc/nginx/sites-available/myapp
+server {
+    listen 443 ssl http2;
+    server_name app.example.com;
+
+    ssl_certificate /etc/letsencrypt/live/app.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/app.example.com/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # WebSocket support
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
+```
+</TabItem>
+</Tabs>
+
+## Database URLs
+
+The `DatabaseUrl` parser understands PostgreSQL and SQLite URL formats:
+
+```bash
+# PostgreSQL
+DATABASE_URL=postgres://user:password@host:5432/dbname
+DATABASE_URL=postgresql://deploy@db.internal/myapp_prod
+
+# SQLite
+DATABASE_URL=sqlite:data/app.db
+DATABASE_URL=data/app.db    # bare filename treated as SQLite
+```
+
+The parser is zero-allocation -- all returned slices point into the original URL string. For PostgreSQL, `toConninfo()` generates a libpq-compatible connection string.
+
+## Next steps
+
+- [Environment Config](/deployment/environment-config/) -- detailed guide to `.env` files and the `Env` module
+- [Docker](/deployment/docker/) -- containerize your zzz application
+- [Performance](/advanced/performance/) -- tuning and benchmarking
