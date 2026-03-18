@@ -12,7 +12,7 @@ export default defineConfig({
 			head: [
 				{
 					tag: 'script',
-					content: `window.op=window.op||function(){var n=[];return new Proxy(function(){arguments.length&&n.push([].slice.call(arguments))},{get:function(t,r){return"q"===r?n:function(){n.push([r].concat([].slice.call(arguments)))}} ,has:function(t,r){return"q"===r}}) }();window.op('init',{clientId:'1b79848c-a999-443f-acd7-215131abf314',trackScreenViews:true,trackOutgoingLinks:true,trackAttributes:true});`,
+					content: `window.op=window.op||function(){var n=[];return new Proxy(function(){arguments.length&&n.push([].slice.call(arguments))},{get:function(t,r){return"q"===r?n:function(){n.push([r].concat([].slice.call(arguments)))}} ,has:function(t,r){return"q"===r}}) }();window.op('init',{clientId:'1b79848c-a999-443f-acd7-215131abf314',apiUrl:'https://opapi-to4gkg0k0wwcs0kkgwscs04s.indielab.link',trackScreenViews:true,trackOutgoingLinks:true,trackAttributes:true});`,
 				},
 				{
 					tag: 'script',
