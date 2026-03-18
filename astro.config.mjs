@@ -16,7 +16,7 @@ export default defineConfig({
 				},
 				{
 					tag: 'script',
-					attrs: { src: 'https://openpanel.dev/op1.js', defer: true, async: true },
+					attrs: { src: 'https://opdashboard-to4gkg0k0wwcs0kkgwscs04s.indielab.link/op1.js', defer: true, async: true },
 				},
 			],
 			logo: {
