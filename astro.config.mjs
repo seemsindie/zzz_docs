@@ -9,6 +9,16 @@ export default defineConfig({
 	integrations: [
 		starlight({
 			title: 'zzz',
+			head: [
+				{
+					tag: 'script',
+					content: `window.op=window.op||function(){var n=[];return new Proxy(function(){arguments.length&&n.push([].slice.call(arguments))},{get:function(t,r){return"q"===r?n:function(){n.push([r].concat([].slice.call(arguments)))}} ,has:function(t,r){return"q"===r}}) }();window.op('init',{clientId:'1b79848c-a999-443f-acd7-215131abf314',trackScreenViews:true,trackOutgoingLinks:true,trackAttributes:true});`,
+				},
+				{
+					tag: 'script',
+					attrs: { src: 'https://openpanel.dev/op1.js', defer: true, async: true },
+				},
+			],
 			logo: {
 				light: './src/assets/logo-light.svg',
 				dark: './src/assets/logo-dark.svg',
