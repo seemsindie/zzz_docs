@@ -7,7 +7,7 @@ The static files middleware serves files from a directory on disk, with automati
 
 ## Basic setup
 
-Add `staticFiles` to your middleware pipeline:
+Add `staticFiles` to your middleware pipeline. For fingerprinted assets with cache-busting URLs, see the [Asset Pipeline](/frontend/asset-pipeline/) instead.
 
 ```zig
 const App = zzz.Router.define(.{
@@ -145,3 +145,5 @@ With `.dir = "public"` and `.prefix = "/static"`, these are available at `/stati
 - [Middleware](/core/middleware/) -- see where static files fits in the pipeline
 - [Context](/core/context/) -- the `sendFile` method and other response helpers
 - [Error Handling](/core/error-handling/) -- how errors propagate through middleware
+- [Asset Pipeline](/frontend/asset-pipeline/) -- fingerprinted assets with cache-busting URLs
+- [Response Cache](/core/response-cache/) -- cache GET responses in memory

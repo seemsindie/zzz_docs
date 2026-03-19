@@ -1,0 +1,131 @@
+---
+title: "Server-Side Rendering"
+description: "Render React components to HTML on the server using the SSR bridge and Bun subprocesses."
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+The SSR bridge renders React components to HTML on the server by calling Bun as a subprocess. This lets you use React for complex UI components while keeping the rest of your application in Zig. The rendered HTML is returned as a string that you can embed in your templates or send directly as a response.
+
+## Prerequisites
+
+- [Bun](https://bun.sh) installed and available on `PATH`
+- React and ReactDOM (`bun add react react-dom`)
+
+## Quick setup
+
+<Steps>
+1. **Generate SSR starter files**
+
+   ```bash
+   zzz assets setup --ssr
+   ```
+
+   This creates the standard asset files plus an SSR worker script at `assets/ssr-worker.js` and a sample component at `assets/components/App.jsx`.
+
+2. **Install dependencies**
+
+   ```bash
+   bun install
+   ```
+
+3. **Initialize the SSR pool in your application**
+
+   ```zig
+   const zzz = @import("zzz");
+
+   var ssr_pool = zzz.SsrPool.init(allocator, .{
+       .worker_script = "assets/ssr-worker.js",
+       .pool_size = 4,
+       .timeout_ms = 5000,
+   });
+   defer ssr_pool.deinit();
+   ```
+</Steps>
+
+## SsrConfig
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `worker_script` | `[]const u8` | `"assets/ssr-worker.js"` | Path to the Bun worker script that renders components. |
+| `pool_size` | `u8` | `4` | Number of worker slots in the pool (max 8). |
+| `timeout_ms` | `u32` | `5000` | Maximum time in milliseconds to wait for a render call. |
+
+## Rendering a component
+
+Call `render` with the component name and a JSON string of props:
+
+```zig
+fn ssrHandler(ctx: *zzz.Context) !void {
+    const html = try ssr_pool.render("App", "{\"title\":\"Hello\",\"message\":\"From SSR!\"}");
+    defer ctx.allocator.free(html);
+
+    ctx.html(.ok, html);
+}
+```
+
+The component name maps to a file under `assets/components/`. For example, `"App"` loads `assets/components/App.jsx`.
+
+## How it works
+
+1. `render` spawns a Bun subprocess: `bun run <worker_script>`.
+2. The worker script receives a JSON request via stdin: `{"component":"App","props":{"title":"Hello"}}`.
+3. The worker loads the component from `assets/components/<name>.jsx`, calls `renderToString` from `react-dom/server`, and writes the HTML to stdout.
+4. The pool reads stdout and returns the HTML string to your handler.
+
+Each `render` call spawns a one-shot subprocess. The pool manages round-robin scheduling across `pool_size` worker slots.
+
+## Writing JSX components
+
+Place your components in `assets/components/`:
+
+```jsx
+// assets/components/App.jsx
+const React = require("react");
+
+function App({ title, message }) {
+    return (
+        <div className="app">
+            <h1>{title}</h1>
+            <p>{message}</p>
+        </div>
+    );
+}
+
+module.exports = App;
+```
+
+Components are loaded with `require()`, so use CommonJS exports (`module.exports`). The default export or the module itself is used as the component.
+
+## The worker script
+
+The `zzz assets setup --ssr` command generates a worker script like this:
+
+```javascript
+const { renderToString } = require("react-dom/server");
+const { createElement } = require("react");
+
+const input = JSON.parse(require("fs").readFileSync("/dev/stdin", "utf8"));
+const mod = require("./components/" + input.component + ".jsx");
+const Component = mod.default || mod;
+const html = renderToString(createElement(Component, input.props));
+process.stdout.write(html);
+```
+
+You can customize this script for your needs -- for example, adding a CSS-in-JS provider or a data fetching layer.
+
+## Limitations
+
+- Each render spawns a Bun subprocess, so SSR adds latency compared to pure Zig template rendering. Use it for components that benefit from React's component model.
+- Maximum output size is 64KB per render call.
+- Maximum request size (component name + props JSON) is 4KB.
+- Bun must be installed on the server. If Bun is not available, `render` returns an error.
+- The pool size is capped at 8 workers.
+
+## Next steps
+
+- [Asset Pipeline](/frontend/asset-pipeline/) -- bundle and fingerprint client-side assets
+- [Assets CLI](/cli/assets-cli/) -- `zzz assets setup --ssr` and build commands
+- [Templates](/templates/overview/) -- zzz's built-in template engine for simpler views
+- [Controllers](/core/controllers/) -- wire SSR into your route handlers
+- [Context](/core/context/) -- response helpers like `ctx.html()`

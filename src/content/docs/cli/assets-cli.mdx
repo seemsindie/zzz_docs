@@ -1,0 +1,136 @@
+---
+title: "Assets CLI"
+description: "Use zzz assets to set up, build, and watch JavaScript and CSS assets with Bun."
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+The `zzz assets` command manages your project's JavaScript and CSS assets. It scaffolds a starter asset directory, bundles and fingerprints files with Bun, and provides a watch mode for development.
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `zzz assets setup` | Generate starter asset files, `package.json`, and `bunfig.toml`. |
+| `zzz assets setup --ssr` | Same as `setup`, plus SSR worker script and sample React component. |
+| `zzz assets build` | Bundle, minify, fingerprint, and generate the asset manifest. |
+| `zzz assets watch` | Watch source files and rebuild on change (Bun watch mode). |
+
+## setup
+
+```bash
+zzz assets setup
+```
+
+Creates the following structure:
+
+```
+assets/
+  app.js          # Starter JavaScript entry point
+  app.css         # Starter CSS file
+public/
+  assets/         # Output directory (created if missing)
+package.json      # Bun/npm dependencies
+bunfig.toml       # Bun build configuration
+```
+
+After setup, install dependencies:
+
+```bash
+bun install
+```
+
+### SSR setup
+
+```bash
+zzz assets setup --ssr
+```
+
+Creates the standard files above, plus:
+
+```
+assets/
+  ssr-worker.js           # Bun worker script for server-side rendering
+  components/
+    App.jsx               # Sample React component
+```
+
+The `package.json` includes `react` and `react-dom` as dependencies when using `--ssr`.
+
+## build
+
+```bash
+zzz assets build
+```
+
+The build command performs these steps:
+
+<Steps>
+1. **Bundle JavaScript** -- runs `bun build assets/app.js --outdir public/assets --minify` to produce a minified bundle.
+
+2. **Copy CSS** -- copies `assets/app.css` to `public/assets/app.css`.
+
+3. **Fingerprint files** -- computes an FNV-1a hash of each output file and creates a fingerprinted copy (e.g. `app-2b3e914a.js`).
+
+4. **Generate manifest** -- writes `public/assets/assets-manifest.json` mapping original filenames to fingerprinted filenames.
+</Steps>
+
+### Manifest format
+
+```json
+{
+  "app.js": "app-2b3e914a.js",
+  "app.css": "app-7f1dc3e8.css"
+}
+```
+
+The asset middleware reads this manifest at runtime to resolve `assetPath("app.js")` to the fingerprinted URL.
+
+## watch
+
+```bash
+zzz assets watch
+```
+
+Starts Bun in watch mode. When any file under `assets/` changes, the build runs again automatically. Use this alongside `zzz server` during development:
+
+```bash
+# Terminal 1: application server with auto-restart
+zzz server
+
+# Terminal 2: asset rebuilds on change
+zzz assets watch
+```
+
+## Typical workflow
+
+<Steps>
+1. **One-time setup**
+
+   ```bash
+   zzz assets setup
+   bun install
+   ```
+
+2. **During development** -- run both commands in separate terminals:
+
+   ```bash
+   zzz server          # Rebuilds Zig on change
+   zzz assets watch    # Rebuilds assets on change
+   ```
+
+3. **For production** -- build once before deploying:
+
+   ```bash
+   zzz assets build
+   zig build -Doptimize=.ReleaseSafe
+   ```
+</Steps>
+
+## Next steps
+
+- [Asset Pipeline](/frontend/asset-pipeline/) -- how the middleware loads the manifest and resolves paths
+- [Live Reload](/frontend/live-reload/) -- automatic browser refresh on file changes
+- [Server-Side Rendering](/frontend/ssr/) -- use `setup --ssr` to add React SSR
+- [Dev Server](/cli/dev-server/) -- automatic application rebuilds during development
+- [CLI Overview](/cli/overview/) -- full list of zzz CLI commands

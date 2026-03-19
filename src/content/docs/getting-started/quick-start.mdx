@@ -150,6 +150,16 @@ Group routes under a prefix with shared middleware:
 },
 ```
 
+## Development tools
+
+For a faster development cycle, use the `zzz server` command to automatically rebuild on source changes, and enable [live reload](/frontend/live-reload/) for instant browser refresh:
+
+```bash
+zzz server
+```
+
+If your project uses bundled assets, run `zzz assets watch` in a separate terminal. See [Asset Pipeline](/frontend/asset-pipeline/) for setup details.
+
 ## Next steps
 
 You now have a working zzz application with routing, middleware, and JSON. From here:
@@ -159,3 +169,4 @@ You now have a working zzz application with routing, middleware, and JSON. From 
 - Set up [Background Jobs](/jobs/overview/)
 - Add [WebSocket Channels](/websockets/overview/)
 - Use the [Template Engine](/templates/overview/) for HTML views
+- Set up the [Frontend](/frontend/asset-pipeline/) toolchain (assets, live reload, SSR)

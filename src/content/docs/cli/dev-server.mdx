@@ -116,9 +116,25 @@ zzz routes
 
 This runs your app with the `--routes` flag, which prints a formatted table of all registered routes, their HTTP methods, and handler functions.
 
+## Live reload
+
+For instant browser refresh during development, combine `zzz server` with [live reload](/frontend/live-reload/). The dev server handles Zig rebuilds, while live reload pushes changes to the browser over a WebSocket.
+
+If your project uses the [asset pipeline](/frontend/asset-pipeline/), run `zzz assets watch` in a separate terminal alongside the dev server so that CSS and JavaScript changes are also picked up:
+
+```bash
+# Terminal 1: Zig source rebuilds
+zzz server
+
+# Terminal 2: asset rebuilds
+zzz assets watch
+```
+
 ## Next steps
 
 - [CLI overview](/cli/overview) for the full list of commands
 - [Create a new project](/cli/new-project) if you have not set one up yet
 - [Generate code](/cli/generators) to add controllers, models, and channels
 - [Run migrations](/cli/migrations-cli) after generating models
+- [Live Reload](/frontend/live-reload/) for automatic browser refresh
+- [Asset Pipeline](/frontend/asset-pipeline/) for bundled and fingerprinted assets

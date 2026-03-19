@@ -1,0 +1,159 @@
+---
+title: "Live Reload"
+description: "Automatically refresh the browser when source files change during development."
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+Live reload watches your project files and refreshes the browser when changes are detected. CSS changes are hot-swapped without a full page reload, while other file types trigger a full refresh. It uses a WebSocket connection between the server and browser -- no browser extension required.
+
+## Three components
+
+Live reload consists of three parts that work together:
+
+1. **`liveReload` middleware** -- injects a small client script into HTML responses.
+2. **`liveReloadWs` WebSocket handler** -- maintains the WebSocket connection at `/__zzz/live-reload`.
+3. **swatcher file watcher** -- monitors directories for changes and broadcasts reload messages via PubSub.
+
+## Setup
+
+<Steps>
+1. **Add the middleware and WebSocket route**
+
+   ```zig
+   const App = zzz.Router.define(.{
+       .middleware = &.{
+           zzz.errorHandler(.{}),
+           zzz.logger,
+           zzz.gzipCompress(.{}),
+           zzz.liveReload(.{}),  // AFTER gzipCompress
+           zzz.staticFiles(.{ .dir = "public", .prefix = "/static" }),
+       },
+       .routes = &.{
+           zzz.Router.get("/", index),
+           zzz.Router.websocket("/__zzz/live-reload", .{
+               .handler = zzz.liveReloadWs(),
+           }),
+       },
+   });
+   ```
+
+2. **Start the file watcher in your main function**
+
+   ```zig
+   const live_reload = @import("live_reload");
+
+   pub fn main() !void {
+       var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+       defer _ = gpa.deinit();
+
+       try live_reload.startWatcher(gpa.allocator());
+
+       var server = zzz.Server.init(gpa.allocator(), .{
+           .port = 4000,
+       }, &App.handler);
+       try server.listen(std.io.defaultIo());
+   }
+   ```
+
+3. **Configure swatcher in build.zig**
+
+   Add swatcher as a dependency and pass a build option to enable live reload conditionally:
+
+   ```zig
+   const live_reload = b.option(bool, "live_reload", "Enable live reload") orelse
+       std.mem.eql(u8, env, "dev");
+
+   if (live_reload) {
+       const swatcher_dep = b.dependency("swatcher", .{ .target = target, .optimize = optimize });
+       exe.root_module.addImport("swatcher", swatcher_dep.module("swatcher"));
+   }
+   ```
+</Steps>
+
+## Middleware placement
+
+Place `liveReload` **after** `gzipCompress` in the middleware pipeline. The middleware injects a `<script>` tag before the closing `</body>` of HTML responses, so it needs to see the uncompressed response body. If placed before gzip, the body would be compressed and the injection point would not be found.
+
+## How it works
+
+1. The `liveReload` middleware intercepts HTML responses and injects a client-side script before `</body>`.
+2. The script opens a WebSocket connection to `/__zzz/live-reload`.
+3. The `liveReloadWs` handler subscribes each connection to the `"__live_reload"` PubSub topic.
+4. The swatcher file watcher monitors configured directories (e.g. `public/`) for changes.
+5. When a file changes, the watcher broadcasts a message to the PubSub topic.
+
+### Message types
+
+| Message | Trigger | Browser behavior |
+|---------|---------|-----------------|
+| `{"type":"css"}` | A `.css` file changed | Reloads all `<link>` stylesheets by appending a `?_lr=<timestamp>` query parameter. No full page reload. |
+| `{"type":"reload"}` | Any other file changed | Full page reload via `location.reload()`. |
+
+### Auto-reconnection
+
+The client script automatically reconnects with exponential backoff (100ms to 5000ms). If the connection was lost for more than 1 second before reconnecting, a full page reload is triggered -- this handles the case where the server restarted and files may have changed while disconnected.
+
+## LiveReloadConfig
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `endpoint` | `[]const u8` | `"/__zzz/live-reload"` | WebSocket endpoint path for the reload connection. |
+
+## File watcher configuration
+
+The swatcher watcher is configured in your live reload module:
+
+```zig
+pub fn startWatcher(allocator: std.mem.Allocator) !void {
+    var watcher = try swatcher.Watcher.init(allocator, .{
+        .poll_interval_ms = 50,
+        .coalesce_ms = 200,
+        .dirs = &.{"public/"},
+        .watch_mode = .WATCH_DIRECTORIES,
+    });
+    // On change, broadcast to PubSub topic "__live_reload"
+}
+```
+
+| Option | Value | Description |
+|--------|-------|-------------|
+| `poll_interval_ms` | `50` | How often to poll for file changes (milliseconds). |
+| `coalesce_ms` | `200` | Debounce window -- changes within this period are batched into a single reload. |
+| `watch_mode` | `WATCH_DIRECTORIES` | Watch directory-level changes only, avoiding duplicate events from individual file watches. |
+
+## Build flag pattern
+
+Use a comptime build flag to strip live reload from production builds:
+
+```zig
+const build_options = @import("build_options");
+
+const App = zzz.Router.define(.{
+    .middleware = &.{
+        zzz.errorHandler(.{}),
+        zzz.logger,
+        if (comptime build_options.live_reload) zzz.liveReload(.{}) else null,
+        zzz.staticFiles(.{ .dir = "public", .prefix = "/static" }),
+    },
+    .routes = &.{
+        zzz.Router.get("/", index),
+        if (comptime build_options.live_reload)
+            zzz.Router.websocket("/__zzz/live-reload", .{
+                .handler = zzz.liveReloadWs(),
+            })
+        else
+            null,
+    },
+});
+```
+
+This ensures no live reload code is included in production binaries.
+
+## Next steps
+
+- [Asset Pipeline](/frontend/asset-pipeline/) -- bundle and fingerprint assets
+- [Dev Server](/cli/dev-server/) -- automatic rebuilds on source changes
+- [Assets CLI](/cli/assets-cli/) -- `zzz assets watch` for rebuilding assets on change
+- [Static Files](/core/static-files/) -- serve files from disk
+- [WebSockets](/websockets/overview/) -- the WebSocket system that live reload is built on

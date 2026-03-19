@@ -49,6 +49,8 @@ export default defineConfig({
 						{ label: 'Context', slug: 'core/context' },
 						{ label: 'Controllers', slug: 'core/controllers' },
 						{ label: 'Static Files', slug: 'core/static-files' },
+						{ label: 'Server-Sent Events', slug: 'core/server-sent-events' },
+						{ label: 'Response Cache', slug: 'core/response-cache' },
 						{ label: 'Error Handling', slug: 'core/error-handling' },
 					],
 				},
@@ -60,6 +62,14 @@ export default defineConfig({
 						{ label: 'Layouts & Partials', slug: 'templates/layouts-and-partials' },
 						{ label: 'Pipes & Helpers', slug: 'templates/pipes-and-helpers' },
 						{ label: 'htmx Integration', slug: 'templates/htmx' },
+					],
+				},
+				{
+					label: 'Frontend',
+					items: [
+						{ label: 'Asset Pipeline', slug: 'frontend/asset-pipeline' },
+						{ label: 'Live Reload', slug: 'frontend/live-reload' },
+						{ label: 'Server-Side Rendering', slug: 'frontend/ssr' },
 					],
 				},
 				{
@@ -140,6 +150,7 @@ export default defineConfig({
 						{ label: 'Generators', slug: 'cli/generators' },
 						{ label: 'Migrations', slug: 'cli/migrations-cli' },
 						{ label: 'Dev Server', slug: 'cli/dev-server' },
+						{ label: 'Assets CLI', slug: 'cli/assets-cli' },
 					],
 				},
 				{

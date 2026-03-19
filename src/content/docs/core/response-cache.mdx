@@ -1,0 +1,116 @@
+---
+title: "Response Cache"
+description: "Cache GET responses in memory with TTL and automatic cache-control headers."
+---
+
+The response cache middleware stores GET responses in memory and serves them directly on subsequent requests, bypassing the downstream handler. It adds `X-Cache: HIT` or `X-Cache: MISS` headers so you can verify caching behavior. Use it for endpoints that are expensive to compute but do not change frequently.
+
+## Basic setup
+
+Add `cacheMiddleware` early in your pipeline so cached responses skip as much work as possible:
+
+```zig
+const App = zzz.Router.define(.{
+    .middleware = &.{
+        zzz.errorHandler(.{}),
+        zzz.logger,
+        zzz.cacheMiddleware(.{
+            .cacheable_prefixes = &.{"/api/"},
+            .default_ttl_s = 300,
+        }),
+        zzz.gzipCompress(.{}),
+        zzz.bodyParser,
+    },
+    .routes = &.{ ... },
+});
+```
+
+## CacheConfig
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `cacheable_prefixes` | `[]const []const u8` | `&.{"/"}` | URL path prefixes eligible for caching. A request is cached only if its path starts with one of these prefixes. |
+| `default_ttl_s` | `u32` | `300` | Time-to-live in seconds for cached entries. After this period, the entry expires and the next request triggers a fresh response. |
+
+## How it works
+
+When a request arrives:
+
+1. **GET only** -- non-GET requests pass through immediately.
+2. **Prefix match** -- the request path is checked against `cacheable_prefixes`. If no prefix matches, the request passes through.
+3. **`Cache-Control: no-cache`** -- if the client sends this header, the cache is bypassed and the response is generated fresh.
+4. **Cache lookup** -- if a cached entry exists and has not expired, the cached body and content type are returned with an `X-Cache: HIT` header.
+5. **Cache miss** -- the downstream handler runs. If it returns a `200 OK` response with a body of 4096 bytes or less, the response is cached. An `X-Cache: MISS` header is added.
+
+Responses larger than 4096 bytes are not cached to keep memory usage bounded.
+
+## Scoped caching
+
+You can also apply the cache middleware to specific route groups using scoped routes:
+
+```zig
+.routes = &.{
+    zzz.Router.get("/", index),
+
+    zzz.Router.scope("/api/cached", .{
+        .middleware = &.{
+            zzz.cacheMiddleware(.{
+                .cacheable_prefixes = &.{"/api/cached/"},
+                .default_ttl_s = 10,
+            }),
+        },
+    }, &.{
+        zzz.Router.get("/time", cachedTimeHandler),
+        zzz.Router.get("/stats", cachedStatsHandler),
+    }),
+},
+```
+
+## Cache invalidation
+
+Access the global cache instance to manually remove entries:
+
+```zig
+const cache = zzz.getResponseCache();
+
+// Invalidate a specific path
+cache.remove("/api/cached/time");
+
+// Or clear the entire cache
+cache.clear();
+```
+
+This is useful when a write operation (POST, PUT, DELETE) should invalidate related cached GET responses.
+
+## Verifying cache behavior
+
+Check the `X-Cache` response header:
+
+```bash
+# First request -- cache miss
+curl -i http://127.0.0.1:4000/api/cached/time
+# X-Cache: MISS
+
+# Second request -- cache hit
+curl -i http://127.0.0.1:4000/api/cached/time
+# X-Cache: HIT
+
+# Bypass cache
+curl -i -H "Cache-Control: no-cache" http://127.0.0.1:4000/api/cached/time
+# X-Cache: MISS
+```
+
+## Limitations
+
+- **4KB max body** -- responses larger than 4096 bytes are not cached. This keeps the in-memory footprint predictable.
+- **In-memory only** -- the cache lives in process memory and is lost on restart. There is no distributed or disk-based backend.
+- **GET only** -- only GET requests are cached. POST, PUT, DELETE, and other methods always pass through.
+- **No vary support** -- the cache key is the request path only. It does not account for query parameters, headers, or content negotiation.
+
+## Next steps
+
+- [Middleware](/core/middleware/) -- understand middleware ordering and scoping
+- [Static Files](/core/static-files/) -- serve files from disk with ETag caching
+- [Asset Pipeline](/frontend/asset-pipeline/) -- fingerprinted assets for long-lived browser caching
+- [Context](/core/context/) -- response helpers and the request/response lifecycle
+- [Performance](/advanced/performance/) -- other strategies for improving response times

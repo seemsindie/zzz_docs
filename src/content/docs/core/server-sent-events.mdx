@@ -1,0 +1,176 @@
+---
+title: "Server-Sent Events"
+description: "Stream real-time updates from server to client over HTTP using the SSE middleware and SseWriter."
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+Server-Sent Events (SSE) provide a simple, one-directional channel for pushing updates from the server to the browser over a standard HTTP connection. Unlike WebSockets, SSE uses plain HTTP, works through most proxies and firewalls, and supports automatic reconnection out of the box. Use SSE when you need server-to-client streaming without bidirectional communication.
+
+## Basic setup
+
+<Steps>
+1. **Add the SSE middleware to a scoped route**
+
+   ```zig
+   const App = zzz.Router.define(.{
+       .middleware = &.{
+           zzz.errorHandler(.{}),
+           zzz.logger,
+       },
+       .routes = &.{
+           zzz.Router.get("/", index),
+           zzz.Router.scope("/events", .{
+               .middleware = &.{zzz.sseMiddleware(.{})},
+           }, &.{
+               zzz.Router.get("", sseHandler),
+           }),
+       },
+   });
+   ```
+
+2. **Write the SSE handler**
+
+   ```zig
+   fn sseHandler(ctx: *zzz.Context) !void {
+       if (ctx.getAssign("sse")) |_| {
+           // Client accepts text/event-stream
+           ctx.respond(.ok, "text/event-stream", "event: message\ndata: Hello from SSE!\n\n");
+           return;
+       }
+       ctx.text(.bad_request, "This endpoint requires an SSE connection.");
+   }
+   ```
+</Steps>
+
+## SseConfig
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `extra_headers` | `[]const [2][]const u8` | `&.{}` | Additional response headers as `[name, value]` pairs. |
+
+```zig
+zzz.sseMiddleware(.{
+    .extra_headers = &.{
+        .{ "X-Accel-Buffering", "no" },  // Disable Nginx buffering
+    },
+}),
+```
+
+## How the middleware works
+
+When a request arrives at a route guarded by `sseMiddleware`:
+
+1. The middleware checks the `Accept` header for `text/event-stream`.
+2. If present, it sets these response headers:
+   - `Content-Type: text/event-stream`
+   - `Cache-Control: no-cache`
+   - `Connection: keep-alive`
+   - Plus any `extra_headers` from the config.
+3. It assigns `"sse" = "true"` to the context.
+4. The downstream handler runs and can check `ctx.getAssign("sse")` to confirm the SSE connection.
+
+If the client does not send `Accept: text/event-stream`, the middleware still calls the downstream handler, but without setting headers or the assign. This lets you serve both SSE and regular responses from the same route if needed.
+
+## SSE event format
+
+SSE follows a simple text protocol. Each event is a block of `field: value` lines separated by a blank line:
+
+```
+event: message
+data: Hello, world!
+
+event: update
+data: {"count": 42}
+id: 1
+
+```
+
+The standard fields are:
+
+| Field | Description |
+|-------|-------------|
+| `data` | The event payload. Multiple `data` lines are joined with newlines. |
+| `event` | The event type name. The client listens with `addEventListener(type, ...)`. |
+| `id` | Sets the last event ID for reconnection. |
+| `retry` | Suggests a reconnection interval in milliseconds. |
+
+## SseWriter
+
+For persistent SSE connections where you need to send multiple events over time, use the `SseWriter`:
+
+```zig
+fn streamHandler(ctx: *zzz.Context) !void {
+    var writer = zzz.SseWriter.init(ctx);
+
+    try writer.sendEvent("Hello from SSE!");
+    try writer.sendNamedEvent("update", "{\"count\": 1}");
+    try writer.sendWithId("update", "{\"count\": 2}", "evt-2");
+    try writer.keepAlive();  // sends a comment line to prevent timeout
+}
+```
+
+### SseWriter API
+
+| Method | Description |
+|--------|-------------|
+| `sendEvent(data)` | Send an unnamed event with `data`. |
+| `sendNamedEvent(event, data)` | Send a named event with `event` type and `data`. |
+| `sendWithId(event, data, id)` | Send a named event with an `id` field for reconnection tracking. |
+| `keepAlive()` | Send a comment line (`: keepalive`) to prevent proxy/client timeouts. |
+
+## Client-side usage
+
+Browsers natively support SSE via the `EventSource` API:
+
+```html
+<script>
+const source = new EventSource("/events");
+
+// Listen for unnamed events
+source.onmessage = (e) => {
+    console.log("message:", e.data);
+};
+
+// Listen for named events
+source.addEventListener("update", (e) => {
+    const data = JSON.parse(e.data);
+    console.log("update:", data);
+});
+
+// Handle errors and reconnection
+source.onerror = (e) => {
+    console.log("SSE error, will auto-reconnect");
+};
+</script>
+```
+
+`EventSource` automatically reconnects if the connection drops, using the last event `id` to resume where it left off.
+
+## Scoped route example
+
+A common pattern is to scope SSE routes under a prefix:
+
+```zig
+zzz.Router.scope("/api/events", .{
+    .middleware = &.{
+        zzz.bearerAuth(.{ .validate = &myValidator }),
+        zzz.sseMiddleware(.{
+            .extra_headers = &.{
+                .{ "X-Accel-Buffering", "no" },
+            },
+        }),
+    },
+}, &.{
+    zzz.Router.get("/notifications", notificationStream),
+    zzz.Router.get("/activity", activityStream),
+}),
+```
+
+## Next steps
+
+- [WebSockets](/websockets/overview/) -- bidirectional communication when you need client-to-server messages
+- [Middleware](/core/middleware/) -- understand the middleware pipeline and scoping
+- [Context](/core/context/) -- response helpers and assigns
+- [Controllers](/core/controllers/) -- organize your handlers
+- [Response Cache](/core/response-cache/) -- cache GET responses (not applicable to SSE, but useful for other endpoints)
