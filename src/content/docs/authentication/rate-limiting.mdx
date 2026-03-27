@@ -1,6 +1,6 @@
 ---
 title: "Rate Limiting"
-description: "Configure the zzz rate limiting middleware to throttle requests using a token bucket algorithm, with per-route and global strategies."
+description: "Configure the pidgn rate limiting middleware to throttle requests using a token bucket algorithm, with per-route and global strategies."
 ---
 
 import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
@@ -20,13 +20,13 @@ The `rateLimit` middleware throttles incoming requests using a token bucket algo
 Apply the rate limiter to a scope of routes:
 
 ```zig
-const zzz = @import("zzz");
+const pidgn = @import("pidgn");
 
-const routes = zzz.Router.scope("/api", &.{
-    zzz.rateLimit(.{ .max_requests = 10, .window_seconds = 60 }),
+const routes = pidgn.Router.scope("/api", &.{
+    pidgn.rateLimit(.{ .max_requests = 10, .window_seconds = 60 }),
 }, &.{
-    zzz.Router.get("/data", dataHandler),
-    zzz.Router.post("/submit", submitHandler),
+    pidgn.Router.get("/data", dataHandler),
+    pidgn.Router.post("/submit", submitHandler),
 });
 ```
 
@@ -55,18 +55,18 @@ Apply different rate limits to different route groups using scopes:
 ```zig
 const routes =
     // Strict limit on auth endpoints
-    zzz.Router.scope("/auth", &.{
-        zzz.rateLimit(.{ .max_requests = 5, .window_seconds = 300 }),
+    pidgn.Router.scope("/auth", &.{
+        pidgn.rateLimit(.{ .max_requests = 5, .window_seconds = 300 }),
     }, &.{
-        zzz.Router.post("/login", loginHandler),
-        zzz.Router.post("/register", registerHandler),
+        pidgn.Router.post("/login", loginHandler),
+        pidgn.Router.post("/register", registerHandler),
     })
     // More generous limit on general API
-    ++ zzz.Router.scope("/api", &.{
-        zzz.rateLimit(.{ .max_requests = 100, .window_seconds = 60 }),
+    ++ pidgn.Router.scope("/api", &.{
+        pidgn.rateLimit(.{ .max_requests = 100, .window_seconds = 60 }),
     }, &.{
-        zzz.Router.get("/users", usersHandler),
-        zzz.Router.get("/posts", postsHandler),
+        pidgn.Router.get("/users", usersHandler),
+        pidgn.Router.get("/posts", postsHandler),
     });
 ```
 
@@ -77,11 +77,11 @@ Because each comptime configuration produces its own isolated bucket store, the 
 To apply a rate limit to every route, add the middleware to the top-level `Router.define`:
 
 ```zig
-const App = zzz.Router.define(.{
+const App = pidgn.Router.define(.{
     .middleware = &.{
-        zzz.errorHandler(.{}),
-        zzz.logger,
-        zzz.rateLimit(.{ .max_requests = 120, .window_seconds = 60 }),
+        pidgn.errorHandler(.{}),
+        pidgn.logger,
+        pidgn.rateLimit(.{ .max_requests = 120, .window_seconds = 60 }),
     },
     .routes = routes,
 });
@@ -100,7 +100,7 @@ The `key_header` option determines how clients are identified. Choose the header
 
 ```zig
 // Rate limit by API key instead of IP
-zzz.rateLimit(.{
+pidgn.rateLimit(.{
     .max_requests = 1000,
     .window_seconds = 3600,
     .key_header = "Authorization",
@@ -136,21 +136,21 @@ The `Retry-After` value is the `window_seconds` setting, indicating when the buc
 A common pattern is to rate-limit authentication endpoints more strictly while also requiring auth on API routes:
 
 ```zig
-const zzz = @import("zzz");
+const pidgn = @import("pidgn");
 
 const routes =
     // Public auth endpoints with strict rate limiting
-    zzz.Router.scope("/auth", &.{
-        zzz.rateLimit(.{ .max_requests = 5, .window_seconds = 300 }),
+    pidgn.Router.scope("/auth", &.{
+        pidgn.rateLimit(.{ .max_requests = 5, .window_seconds = 300 }),
     }, &.{
-        zzz.Router.post("/login", loginHandler),
+        pidgn.Router.post("/login", loginHandler),
     })
     // Protected API with moderate rate limiting
-    ++ zzz.Router.scope("/api", &.{
-        zzz.rateLimit(.{ .max_requests = 60, .window_seconds = 60 }),
-        zzz.bearerAuth(.{ .required = true }),
+    ++ pidgn.Router.scope("/api", &.{
+        pidgn.rateLimit(.{ .max_requests = 60, .window_seconds = 60 }),
+        pidgn.bearerAuth(.{ .required = true }),
     }, &.{
-        zzz.Router.get("/profile", profileHandler),
+        pidgn.Router.get("/profile", profileHandler),
     });
 ```
 

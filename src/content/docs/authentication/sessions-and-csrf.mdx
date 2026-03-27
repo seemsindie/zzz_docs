@@ -1,11 +1,11 @@
 ---
 title: "Sessions and CSRF Protection"
-description: "Configure cookie-based sessions and cross-site request forgery protection in zzz with the session and CSRF middleware."
+description: "Configure cookie-based sessions and cross-site request forgery protection in pidgn with the session and CSRF middleware."
 ---
 
 import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
 
-zzz provides two middleware that work together to manage user sessions and prevent cross-site request forgery attacks: `session` for cookie-based session management and `csrf` for token-based CSRF protection.
+pidgn provides two middleware that work together to manage user sessions and prevent cross-site request forgery attacks: `session` for cookie-based session management and `csrf` for token-based CSRF protection.
 
 ## Session middleware
 
@@ -15,7 +15,7 @@ The `session` middleware creates and manages server-side sessions identified by 
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `cookie_name` | `[]const u8` | `"zzz_session"` | Name of the session cookie |
+| `cookie_name` | `[]const u8` | `"pidgn_session"` | Name of the session cookie |
 | `max_age` | `i64` | `86400` (1 day) | Cookie max-age in seconds |
 | `path` | `[]const u8` | `"/"` | Cookie path |
 | `http_only` | `bool` | `true` | Set the `HttpOnly` flag on the cookie |
@@ -26,16 +26,16 @@ The `session` middleware creates and manages server-side sessions identified by 
 Add the session middleware to your global middleware pipeline:
 
 ```zig
-const zzz = @import("zzz");
+const pidgn = @import("pidgn");
 
-const App = zzz.Router.define(.{
+const App = pidgn.Router.define(.{
     .middleware = &.{
-        zzz.bodyParser,
-        zzz.session(.{}),
+        pidgn.bodyParser,
+        pidgn.session(.{}),
     },
     .routes = &.{
-        zzz.Router.get("/dashboard", dashboard),
-        zzz.Router.post("/login", login),
+        pidgn.Router.get("/dashboard", dashboard),
+        pidgn.Router.post("/login", login),
     },
 });
 ```
@@ -45,14 +45,14 @@ const App = zzz.Router.define(.{
 Session data flows through the assigns map. Any key-value pair you store in assigns is automatically saved to the session after the handler runs:
 
 ```zig
-fn login(ctx: *zzz.Context) !void {
+fn login(ctx: *pidgn.Context) !void {
     // Authenticate user (simplified)
     ctx.assign("user_name", "alice");
     ctx.assign("role", "admin");
     ctx.json(.ok, "{\"status\":\"logged in\"}");
 }
 
-fn dashboard(ctx: *zzz.Context) !void {
+fn dashboard(ctx: *pidgn.Context) !void {
     const user = ctx.getAssign("user_name") orelse "guest";
     const session_id = ctx.getAssign("session_id") orelse "unknown";
 
@@ -68,7 +68,7 @@ fn dashboard(ctx: *zzz.Context) !void {
 
 <Steps>
 
-1. On each request, the middleware looks for the session cookie (default: `zzz_session`).
+1. On each request, the middleware looks for the session cookie (default: `pidgn_session`).
 
 2. If the cookie is present and the session ID matches a stored session, the session's saved assigns are loaded into `ctx.assigns`.
 
@@ -95,7 +95,7 @@ The session store is an in-memory, fixed-size array:
 For production deployments, enable the `Secure` flag and adjust the cookie lifetime:
 
 ```zig
-zzz.session(.{
+pidgn.session(.{
     .cookie_name = "myapp_session",
     .max_age = 3600 * 8,    // 8 hours
     .path = "/",
@@ -121,11 +121,11 @@ The `csrf` middleware generates and validates per-session CSRF tokens to prevent
 The CSRF middleware must come after both the body parser and the session middleware:
 
 ```zig
-const App = zzz.Router.define(.{
+const App = pidgn.Router.define(.{
     .middleware = &.{
-        zzz.bodyParser,          // parses form fields
-        zzz.session(.{}),        // manages session state
-        zzz.csrf(.{}),           // generates and validates CSRF tokens
+        pidgn.bodyParser,          // parses form fields
+        pidgn.session(.{}),        // manages session state
+        pidgn.csrf(.{}),           // generates and validates CSRF tokens
     },
     .routes = routes,
 });
@@ -152,7 +152,7 @@ const App = zzz.Router.define(.{
 On GET requests, read the CSRF token from assigns and include it as a hidden form field:
 
 ```zig
-fn formPage(ctx: *zzz.Context) !void {
+fn formPage(ctx: *pidgn.Context) !void {
     const csrf_token = ctx.getAssign("csrf_token") orelse "no-token";
 
     var buf: [1024]u8 = undefined;
@@ -172,7 +172,7 @@ fn formPage(ctx: *zzz.Context) !void {
 For JavaScript-based requests (AJAX, fetch), send the token in the `X-CSRF-Token` header:
 
 ```zig
-fn formPageWithJs(ctx: *zzz.Context) !void {
+fn formPageWithJs(ctx: *pidgn.Context) !void {
     const csrf_token = ctx.getAssign("csrf_token") orelse "no-token";
 
     var buf: [2048]u8 = undefined;
@@ -206,24 +206,24 @@ When CSRF validation fails, the middleware returns one of:
 The typical pattern combines both middleware globally and uses them together in controllers:
 
 ```zig
-const zzz = @import("zzz");
+const pidgn = @import("pidgn");
 
-const App = zzz.Router.define(.{
+const App = pidgn.Router.define(.{
     .middleware = &.{
-        zzz.errorHandler(.{ .show_details = true }),
-        zzz.logger,
-        zzz.bodyParser,
-        zzz.session(.{}),
-        zzz.csrf(.{}),
+        pidgn.errorHandler(.{ .show_details = true }),
+        pidgn.logger,
+        pidgn.bodyParser,
+        pidgn.session(.{}),
+        pidgn.csrf(.{}),
     },
     .routes = &.{
-        zzz.Router.get("/login", loginPage),
-        zzz.Router.post("/login", loginSubmit),
-        zzz.Router.get("/dashboard", dashboard),
+        pidgn.Router.get("/login", loginPage),
+        pidgn.Router.post("/login", loginSubmit),
+        pidgn.Router.get("/dashboard", dashboard),
     },
 });
 
-fn loginPage(ctx: *zzz.Context) !void {
+fn loginPage(ctx: *pidgn.Context) !void {
     const csrf_token = ctx.getAssign("csrf_token") orelse "";
     const session_id = ctx.getAssign("session_id") orelse "";
 
@@ -234,13 +234,13 @@ fn loginPage(ctx: *zzz.Context) !void {
     ctx.json(.ok, body);
 }
 
-fn loginSubmit(ctx: *zzz.Context) !void {
+fn loginSubmit(ctx: *pidgn.Context) !void {
     // CSRF validation already passed if we reach here
     ctx.assign("user_name", "alice");
     ctx.json(.ok, "{\"result\":\"success\",\"message\":\"CSRF validation passed\"}");
 }
 
-fn dashboard(ctx: *zzz.Context) !void {
+fn dashboard(ctx: *pidgn.Context) !void {
     const user = ctx.getAssign("user_name") orelse "guest";
     var buf: [256]u8 = undefined;
     const body = std.fmt.bufPrint(&buf,

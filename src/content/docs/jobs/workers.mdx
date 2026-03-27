@@ -1,11 +1,11 @@
 ---
 title: "Workers and Supervisors"
-description: "How to define job handler functions, configure the zzz_jobs supervisor, manage concurrency, and understand the job execution lifecycle."
+description: "How to define job handler functions, configure the pidgn_jobs supervisor, manage concurrency, and understand the job execution lifecycle."
 ---
 
 import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
 
-The supervisor is the central coordinator in zzz_jobs. It manages worker threads, polls the store for available jobs, dispatches work to handler functions, and handles graceful shutdown. This page covers how to define workers, configure the supervisor, and understand the job lifecycle.
+The supervisor is the central coordinator in pidgn_jobs. It manages worker threads, polls the store for available jobs, dispatches work to handler functions, and handles graceful shutdown. This page covers how to define workers, configure the supervisor, and understand the job lifecycle.
 
 ## Worker functions
 
@@ -25,9 +25,9 @@ The two arguments are:
 ### Example worker
 
 ```zig
-const zzz_jobs = @import("zzz_jobs");
+const pidgn_jobs = @import("pidgn_jobs");
 
-fn resizeImageWorker(args: []const u8, ctx: *zzz_jobs.JobContext) anyerror!void {
+fn resizeImageWorker(args: []const u8, ctx: *pidgn_jobs.JobContext) anyerror!void {
     // args might be: {"image_id": 42, "width": 800}
     _ = ctx;
 
@@ -85,16 +85,16 @@ The `Supervisor` is generic over a store type. The library provides convenience 
 
 ```zig
 // In-memory
-var supervisor = try zzz_jobs.MemorySupervisor.init(.{}, config);
+var supervisor = try pidgn_jobs.MemorySupervisor.init(.{}, config);
 
 // SQLite-backed (requires -Dsqlite=true at build time)
-var supervisor = try zzz_jobs.SqliteSupervisor.init(
+var supervisor = try pidgn_jobs.SqliteSupervisor.init(
     .{ .pool = &db_pool },
     config,
 );
 
 // PostgreSQL-backed (requires -Dpostgres=true)
-var supervisor = try zzz_jobs.PgSupervisor.init(
+var supervisor = try pidgn_jobs.PgSupervisor.init(
     .{ .pool = &db_pool },
     config,
 );
@@ -149,7 +149,7 @@ The supervisor spawns one OS thread per concurrency slot, up to a maximum of 512
 </Steps>
 
 ```zig
-var supervisor = try zzz_jobs.MemorySupervisor.init(.{}, .{
+var supervisor = try pidgn_jobs.MemorySupervisor.init(.{}, .{
     .queues = &.{.{ .name = "default", .concurrency = 4 }},
     .poll_interval_ms = 500,
 });

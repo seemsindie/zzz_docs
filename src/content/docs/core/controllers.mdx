@@ -5,7 +5,7 @@ description: "Organize route handlers into controller modules with shared prefix
 
 import { Steps } from '@astrojs/starlight/components';
 
-Controllers in zzz are not a special abstraction -- they are regular Zig modules that export handler functions and a `routes` slice. The `Controller.define` helper adds a shared prefix, Swagger tag, and middleware to a group of routes.
+Controllers in pidgn are not a special abstraction -- they are regular Zig modules that export handler functions and a `routes` slice. The `Controller.define` helper adds a shared prefix, Swagger tag, and middleware to a group of routes.
 
 ## The controller pattern
 
@@ -13,19 +13,19 @@ A controller is a Zig file that exports handler functions and a route definition
 
 ```zig
 // src/controllers/users.zig
-const zzz = @import("zzz");
+const pidgn = @import("pidgn");
 
-pub fn index(ctx: *zzz.Context) !void {
+pub fn index(ctx: *pidgn.Context) !void {
     ctx.json(.ok, "{\"users\": []}");
 }
 
-pub fn show(ctx: *zzz.Context) !void {
+pub fn show(ctx: *pidgn.Context) !void {
     const id = ctx.param("id") orelse "0";
     _ = id;
     ctx.json(.ok, "{\"id\": 1, \"name\": \"Alice\"}");
 }
 
-pub fn create(ctx: *zzz.Context) !void {
+pub fn create(ctx: *pidgn.Context) !void {
     ctx.json(.created, "{\"created\": true}");
 }
 ```
@@ -36,30 +36,30 @@ The `Controller.define` function groups routes under a shared prefix, applies mi
 
 ```zig
 // src/controllers/api.zig
-const zzz = @import("zzz");
+const pidgn = @import("pidgn");
 
-pub const ctrl = zzz.Controller.define(.{
+pub const ctrl = pidgn.Controller.define(.{
     .prefix = "/api",
     .tag = "API",
-    .middleware = &.{zzz.bearerAuth(.{ .required = true })},
+    .middleware = &.{pidgn.bearerAuth(.{ .required = true })},
 }, &.{
-    zzz.Router.get("/status", apiStatus)
+    pidgn.Router.get("/status", apiStatus)
         .doc(.{ .summary = "Health check" }),
-    zzz.Router.get("/users", listUsers)
+    pidgn.Router.get("/users", listUsers)
         .doc(.{ .summary = "List users", .tag = "Users" }),
-    zzz.Router.get("/users/:id", getUser)
+    pidgn.Router.get("/users/:id", getUser)
         .doc(.{ .summary = "Get user by ID", .tag = "Users" }),
 });
 
-fn apiStatus(ctx: *zzz.Context) !void {
+fn apiStatus(ctx: *pidgn.Context) !void {
     ctx.json(.ok, "{\"status\": \"ok\"}");
 }
 
-fn listUsers(ctx: *zzz.Context) !void {
+fn listUsers(ctx: *pidgn.Context) !void {
     ctx.json(.ok, "[]");
 }
 
-fn getUser(ctx: *zzz.Context) !void {
+fn getUser(ctx: *pidgn.Context) !void {
     const id = ctx.param("id") orelse "0";
     _ = id;
     ctx.json(.ok, "{}");
@@ -87,16 +87,16 @@ Import the controller module and concatenate its `routes` into your main route l
 const api = @import("controllers/api.zig");
 const home = @import("controllers/home.zig");
 
-const App = zzz.Router.define(.{
+const App = pidgn.Router.define(.{
     .middleware = &.{
-        zzz.errorHandler(.{ .show_details = true }),
-        zzz.logger,
-        zzz.bodyParser,
+        pidgn.errorHandler(.{ .show_details = true }),
+        pidgn.logger,
+        pidgn.bodyParser,
     },
     .routes = home.ctrl.routes
         ++ api.ctrl.routes
         ++ &.{
-            zzz.Router.get("/health", healthCheck),
+            pidgn.Router.get("/health", healthCheck),
         },
 });
 ```
@@ -109,9 +109,9 @@ Controllers can export resource routes alongside or instead of `Controller.defin
 
 ```zig
 // src/controllers/posts.zig
-const zzz = @import("zzz");
+const pidgn = @import("pidgn");
 
-pub const routes = zzz.Router.resource("/api/posts", .{
+pub const routes = pidgn.Router.resource("/api/posts", .{
     .index = listPosts,
     .show = getPost,
     .create = createPost,
@@ -119,23 +119,23 @@ pub const routes = zzz.Router.resource("/api/posts", .{
     .delete_handler = deletePost,
 });
 
-fn listPosts(ctx: *zzz.Context) !void {
+fn listPosts(ctx: *pidgn.Context) !void {
     ctx.json(.ok, "[]");
 }
 
-fn getPost(ctx: *zzz.Context) !void {
+fn getPost(ctx: *pidgn.Context) !void {
     ctx.json(.ok, "{}");
 }
 
-fn createPost(ctx: *zzz.Context) !void {
+fn createPost(ctx: *pidgn.Context) !void {
     ctx.json(.created, "{}");
 }
 
-fn updatePost(ctx: *zzz.Context) !void {
+fn updatePost(ctx: *pidgn.Context) !void {
     ctx.json(.ok, "{}");
 }
 
-fn deletePost(ctx: *zzz.Context) !void {
+fn deletePost(ctx: *pidgn.Context) !void {
     ctx.json(.ok, "{}");
 }
 ```
@@ -148,13 +148,13 @@ Then in `main.zig`:
 
 ## Generating controllers with the CLI
 
-The `zzz` CLI can scaffold a controller with CRUD handlers and resource routes:
+The `pidgn` CLI can scaffold a controller with CRUD handlers and resource routes:
 
 <Steps>
 1. **Generate the controller**
 
    ```bash
-   zzz gen controller posts
+   pidgn gen controller posts
    ```
 
 2. **Review the generated file** at `src/controllers/posts.zig`. It includes `index`, `show`, `create`, `update`, and `delete_handler` functions, plus a `Router.resource` call.
@@ -172,9 +172,9 @@ The generated controller looks like this:
 
 ```zig
 const std = @import("std");
-const zzz = @import("zzz");
-const Context = zzz.Context;
-const Router = zzz.Router;
+const pidgn = @import("pidgn");
+const Context = pidgn.Context;
+const Router = pidgn.Router;
 
 pub fn index(ctx: *Context) !void {
     ctx.json(.ok, "{\"message\":\"Posts index\"}");

@@ -1,18 +1,18 @@
 ---
 title: "Configuration"
-description: "Configuring your zzz application server and environment variables."
+description: "Configuring your pidgn application server and environment variables."
 ---
 
 import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
 
-zzz uses a two-layer configuration system: **comptime defaults** baked in at build time and **runtime overrides** loaded from `.env` files and system environment variables. This page covers the server config options, the environment system, and how they fit together.
+pidgn uses a two-layer configuration system: **comptime defaults** baked in at build time and **runtime overrides** loaded from `.env` files and system environment variables. This page covers the server config options, the environment system, and how they fit together.
 
 ## Server configuration
 
 Pass a `Config` struct to `Server.init` to control how the HTTP server behaves:
 
 ```zig
-var server = zzz.Server.init(allocator, .{
+var server = pidgn.Server.init(allocator, .{
     .host = "0.0.0.0",
     .port = 8080,
     .worker_threads = 8,
@@ -42,7 +42,7 @@ var server = zzz.Server.init(allocator, .{
 To enable HTTPS, pass a `TlsConfig` with paths to your certificate and private key:
 
 ```zig
-var server = zzz.Server.init(allocator, .{
+var server = pidgn.Server.init(allocator, .{
     .port = 443,
     .tls = .{
         .cert_file = "/etc/ssl/certs/app.crt",
@@ -140,10 +140,10 @@ zig build run -Denv=staging
 
 ### The Env loader
 
-`zzz.Env` loads environment variables from `.env` files and the system environment. It is initialized in `main` before the server starts:
+`pidgn.Env` loads environment variables from `.env` files and the system environment. It is initialized in `main` before the server starts:
 
 ```zig
-var env = try zzz.Env.init(allocator, .{});
+var env = try pidgn.Env.init(allocator, .{});
 defer env.deinit();
 ```
 
@@ -192,7 +192,7 @@ Duplicate keys are resolved with a last-wins policy. The file is capped at 1 MB.
 In addition to the automatic `mergeWithEnv` flow, you can read individual environment variables using the `Env` API:
 
 ```zig
-var env = try zzz.Env.init(allocator, .{});
+var env = try pidgn.Env.init(allocator, .{});
 defer env.deinit();
 
 // String lookup (returns ?[]const u8)
@@ -224,7 +224,7 @@ for (env.entries.items) |entry| {
 `mergeWithEnv` bridges comptime config and runtime env vars. For each field in your config struct, it looks up the corresponding `UPPER_SNAKE_CASE` environment variable and, if found, parses it into the field's type:
 
 ```zig
-const config = zzz.mergeWithEnv(@TypeOf(app_config.config), app_config.config, &env);
+const config = pidgn.mergeWithEnv(@TypeOf(app_config.config), app_config.config, &env);
 ```
 
 The field-to-variable mapping is automatic:
@@ -253,7 +253,7 @@ Nested structs are skipped. If a value cannot be parsed, the comptime default is
 If you prefer a single function call instead of separate `Env.init` and `mergeWithEnv`, use `configInit`:
 
 ```zig
-var result = try zzz.configInit(@TypeOf(app_config.config), app_config.config, allocator, .{});
+var result = try pidgn.configInit(@TypeOf(app_config.config), app_config.config, allocator, .{});
 defer result.env.deinit();
 
 const config = result.config;
@@ -265,7 +265,7 @@ const config = result.config;
 The final step is passing your merged config values to the server:
 
 ```zig
-var server = zzz.Server.init(allocator, .{
+var server = pidgn.Server.init(allocator, .{
     .host = config.host,
     .port = config.port,
 }, App.handler);
@@ -276,7 +276,7 @@ try server.listen(io);
 You can also pass additional server-specific options that are not part of your `AppConfig`:
 
 ```zig
-var server = zzz.Server.init(allocator, .{
+var server = pidgn.Server.init(allocator, .{
     .host = config.host,
     .port = config.port,
     .worker_threads = 8,

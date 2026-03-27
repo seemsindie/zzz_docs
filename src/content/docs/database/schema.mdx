@@ -1,6 +1,6 @@
 ---
 title: "Schema"
-description: "Define database schemas with compile-time struct-to-table mapping in zzz_db."
+description: "Define database schemas with compile-time struct-to-table mapping in pidgn_db."
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
@@ -12,7 +12,7 @@ Schemas map Zig structs to database tables at compile time with zero runtime ove
 Every schema is a regular Zig struct with a `pub const Meta` declaration produced by `Schema.define`:
 
 ```zig
-const zzz_db = @import("zzz_db");
+const pidgn_db = @import("pidgn_db");
 
 pub const User = struct {
     id: i64,
@@ -21,7 +21,7 @@ pub const User = struct {
     inserted_at: i64 = 0,
     updated_at: i64 = 0,
 
-    pub const Meta = zzz_db.Schema.define(@This(), .{
+    pub const Meta = pidgn_db.Schema.define(@This(), .{
         .table = "users",
         .primary_key = "id",
         .timestamps = true,
@@ -45,7 +45,7 @@ The second argument to `Schema.define` is a `SchemaOpts` struct:
 
 ## Field type mapping
 
-`zzz_db` automatically maps Zig types to SQL column types at compile time:
+`pidgn_db` automatically maps Zig types to SQL column types at compile time:
 
 | Zig type             | SQLite type | PostgreSQL type    |
 | -------------------- | ----------- | ------------------ |
@@ -73,7 +73,7 @@ pub const Post = struct {
     id: i64,
     title: []const u8,
 
-    pub const Meta = zzz_db.Schema.define(@This(), .{
+    pub const Meta = pidgn_db.Schema.define(@This(), .{
         .table = "posts",
         .primary_key = "id",
         .timestamps = false,
@@ -85,7 +85,7 @@ pub const Country = struct {
     code: []const u8,
     name: []const u8,
 
-    pub const Meta = zzz_db.Schema.define(@This(), .{
+    pub const Meta = pidgn_db.Schema.define(@This(), .{
         .table = "countries",
         .primary_key = "code",
         .timestamps = false,
@@ -105,7 +105,7 @@ pub const Article = struct {
     inserted_at: i64 = 0,
     updated_at: i64 = 0,
 
-    pub const Meta = zzz_db.Schema.define(@This(), .{
+    pub const Meta = pidgn_db.Schema.define(@This(), .{
         .table = "articles",
         .timestamps = true,
     });
@@ -124,7 +124,7 @@ pub const Item = struct {
     name: []const u8,
     full_name: []const u8 = "",
 
-    pub const Meta = zzz_db.Schema.define(@This(), .{
+    pub const Meta = pidgn_db.Schema.define(@This(), .{
         .table = "items",
         .primary_key = "id",
         .timestamps = false,
@@ -181,7 +181,7 @@ pub const User = struct {
     inserted_at: i64 = 0,
     updated_at: i64 = 0,
 
-    pub const Meta = zzz_db.Schema.define(@This(), .{
+    pub const Meta = pidgn_db.Schema.define(@This(), .{
         .table = "users",
         .primary_key = "id",
         .timestamps = true,
@@ -240,7 +240,7 @@ pub const User = struct {
     inserted_at: i64 = 0,
     updated_at: i64 = 0,
 
-    pub const Meta = zzz_db.Schema.define(@This(), .{
+    pub const Meta = pidgn_db.Schema.define(@This(), .{
         .table = "users",
         .primary_key = "id",
         .timestamps = true,
@@ -268,7 +268,7 @@ For `many_to_many`, additionally specify `join_table`, `join_fk`, and `join_asso
 
 ## Table naming conventions
 
-`zzz_db` does not enforce naming conventions -- you explicitly set the table name in `SchemaOpts`. Common conventions:
+`pidgn_db` does not enforce naming conventions -- you explicitly set the table name in `SchemaOpts`. Common conventions:
 
 - Use lowercase plural names for tables: `users`, `posts`, `order_items`
 - Use `snake_case` for column names, matching Zig field names
@@ -279,7 +279,7 @@ For `many_to_many`, additionally specify `join_table`, `join_fk`, and `join_asso
 Use `Schema.meta(T)` to retrieve the Meta type from any schema struct:
 
 ```zig
-const M = zzz_db.Schema.meta(User);
+const M = pidgn_db.Schema.meta(User);
 // M.Table == "users"
 // M.PrimaryKey == "id"
 // M.field_count == 5

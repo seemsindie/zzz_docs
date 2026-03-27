@@ -1,6 +1,6 @@
 ---
 title: "Unique Jobs"
-description: "Prevent duplicate background jobs in zzz_jobs using unique keys and deduplication strategies."
+description: "Prevent duplicate background jobs in pidgn_jobs using unique keys and deduplication strategies."
 ---
 
 When the same work might be enqueued multiple times -- for example, sending a welcome email triggered by multiple webhook deliveries, or a cron job firing while a previous run is still in progress -- unique jobs let you deduplicate at enqueue time using an idempotency key.
@@ -32,7 +32,7 @@ pub const UniqueStrategy = enum {
 The most common case: you want to ensure only one instance of a job is pending at a time. If a duplicate is enqueued, it is silently ignored.
 
 ```zig
-const zzz_jobs = @import("zzz_jobs");
+const pidgn_jobs = @import("pidgn_jobs");
 
 // First enqueue creates the job
 const job1 = try supervisor.enqueue("email_worker", "{\"to\": \"user@example.com\"}", .{

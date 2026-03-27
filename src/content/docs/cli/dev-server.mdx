@@ -1,16 +1,16 @@
 ---
 title: Development Server
-description: Use zzz server to run your application with automatic rebuilds and restarts during development.
+description: Use pidgn server to run your application with automatic rebuilds and restarts during development.
 ---
 
 import { Steps } from '@astrojs/starlight/components';
 
-The `zzz server` command (also available as `zzz s`) starts a development server that builds and runs your application, then watches for changes and automatically restarts when source files are modified.
+The `pidgn server` command (also available as `pidgn s`) starts a development server that builds and runs your application, then watches for changes and automatically restarts when source files are modified.
 
 ## Usage
 
 ```bash
-zzz server
+pidgn server
 ```
 
 The server performs the following cycle:
@@ -23,7 +23,7 @@ The server performs the following cycle:
 ## Getting started
 
 <Steps>
-1. Navigate to your zzz project directory:
+1. Navigate to your pidgn project directory:
 
    ```bash
    cd my_app
@@ -32,7 +32,7 @@ The server performs the following cycle:
 2. Start the development server:
 
    ```bash
-   zzz server
+   pidgn server
    ```
 
 3. Open `http://127.0.0.1:4000` in your browser.
@@ -43,7 +43,7 @@ The server performs the following cycle:
 ## Typical output
 
 ```
-Starting zzz development server...
+Starting pidgn development server...
   Building...
   Server running. Watching for changes... (Ctrl+C to stop)
 ```
@@ -73,16 +73,16 @@ A typical development session looks like this:
 1. Start the dev server:
 
    ```bash
-   zzz server
+   pidgn server
    ```
 
 2. Generate new code as needed:
 
    ```bash
    # In another terminal:
-   zzz gen controller Products
-   zzz gen model Product name:string price:float in_stock:boolean
-   zzz migrate
+   pidgn gen controller Products
+   pidgn gen model Product name:string price:float in_stock:boolean
+   pidgn migrate
    ```
 
 3. Edit the generated files to add your application logic.
@@ -101,7 +101,7 @@ A typical development session looks like this:
 In a separate terminal, use the test command to run your project's test suite at any time:
 
 ```bash
-zzz test
+pidgn test
 ```
 
 This invokes `zig build test` and reports the results.
@@ -111,7 +111,7 @@ This invokes `zig build test` and reports the results.
 To see all routes defined in your application:
 
 ```bash
-zzz routes
+pidgn routes
 ```
 
 This runs your app with the `--routes` flag, which prints a formatted table of all registered routes, their HTTP methods, and handler functions.

@@ -1,11 +1,11 @@
 ---
 title: "Mailer Overview"
-description: "Introduction to zzz_mailer — email sending for the zzz web framework with adapter-based delivery, rate limiting, and telemetry."
+description: "Introduction to pidgn_mailer — email sending for the pidgn web framework with adapter-based delivery, rate limiting, and telemetry."
 ---
 
 import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
 
-zzz_mailer provides a generic, adapter-based email sending system for zzz applications. It supports multiple delivery backends (SMTP, SendGrid, Mailgun), a development mailbox UI, rate limiting, telemetry hooks, and MIME message construction -- all with zero heap allocations in the core path.
+pidgn_mailer provides a generic, adapter-based email sending system for pidgn applications. It supports multiple delivery backends (SMTP, SendGrid, Mailgun), a development mailbox UI, rate limiting, telemetry hooks, and MIME message construction -- all with zero heap allocations in the core path.
 
 ## Architecture
 
@@ -20,12 +20,12 @@ Application  -->  Mailer(Adapter)  -->  SmtpAdapter / SendGridAdapter / DevAdapt
 ## Adding the dependency
 
 <Steps>
-1. **Add `zzz_mailer` to your `build.zig.zon`**
+1. **Add `pidgn_mailer` to your `build.zig.zon`**
 
    ```zig
    .dependencies = .{
-       .zzz_mailer = .{
-           .path = "../zzz_mailer",
+       .pidgn_mailer = .{
+           .path = "../pidgn_mailer",
        },
    },
    ```
@@ -33,17 +33,17 @@ Application  -->  Mailer(Adapter)  -->  SmtpAdapter / SendGridAdapter / DevAdapt
 2. **Wire it into `build.zig`**
 
    ```zig
-   const zzz_mailer = b.dependency("zzz_mailer", .{
+   const pidgn_mailer = b.dependency("pidgn_mailer", .{
        .target = target,
        .optimize = optimize,
    });
-   exe.root_module.addImport("zzz_mailer", zzz_mailer.module("zzz_mailer"));
+   exe.root_module.addImport("pidgn_mailer", pidgn_mailer.module("pidgn_mailer"));
    ```
 </Steps>
 
 ## Core types
 
-The main types you work with live in `zzz_mailer`:
+The main types you work with live in `pidgn_mailer`:
 
 | Type | Description |
 |------|-------------|
@@ -59,8 +59,8 @@ The main types you work with live in `zzz_mailer`:
 Build an `Email` struct with the fields you need. All fields except `from` have sensible defaults:
 
 ```zig
-const zzz_mailer = @import("zzz_mailer");
-const Email = zzz_mailer.Email;
+const pidgn_mailer = @import("pidgn_mailer");
+const Email = pidgn_mailer.Email;
 
 const email = Email{
     .from = .{ .email = "noreply@example.com", .name = "My App" },
@@ -80,9 +80,9 @@ const email = Email{
 Create a `Mailer` with your chosen adapter, then call `send`:
 
 ```zig
-const zzz_mailer = @import("zzz_mailer");
-const SmtpAdapter = zzz_mailer.SmtpAdapter;
-const Mailer = zzz_mailer.Mailer;
+const pidgn_mailer = @import("pidgn_mailer");
+const SmtpAdapter = pidgn_mailer.SmtpAdapter;
+const Mailer = pidgn_mailer.Mailer;
 
 var mailer = Mailer(SmtpAdapter).init(.{
     .adapter = .{
@@ -105,14 +105,14 @@ if (result.success) {
 
 ### Convenience type aliases
 
-zzz_mailer provides pre-configured type aliases so you do not need to specify the generic parameter every time:
+pidgn_mailer provides pre-configured type aliases so you do not need to specify the generic parameter every time:
 
 ```zig
-const zzz_mailer = @import("zzz_mailer");
+const pidgn_mailer = @import("pidgn_mailer");
 
 // These are equivalent:
-var mailer1 = zzz_mailer.SmtpMailer.init(.{ .adapter = .{ ... } });
-var mailer2 = zzz_mailer.Mailer(zzz_mailer.SmtpAdapter).init(.{ .adapter = .{ ... } });
+var mailer1 = pidgn_mailer.SmtpMailer.init(.{ .adapter = .{ ... } });
+var mailer2 = pidgn_mailer.Mailer(pidgn_mailer.SmtpAdapter).init(.{ .adapter = .{ ... } });
 ```
 
 Available aliases: `SmtpMailer`, `SendGridMailer`, `MailgunMailer`, `DevMailer`, `TestMailer`, `LogMailer`.
@@ -135,10 +135,10 @@ When the rate limit is exceeded, the mailer blocks until a token becomes availab
 Attach telemetry handlers to observe email lifecycle events:
 
 ```zig
-const zzz_mailer = @import("zzz_mailer");
-const Telemetry = zzz_mailer.Telemetry;
+const pidgn_mailer = @import("pidgn_mailer");
+const Telemetry = pidgn_mailer.Telemetry;
 
-fn onEmailEvent(event: zzz_mailer.Event) void {
+fn onEmailEvent(event: pidgn_mailer.Event) void {
     switch (event) {
         .email_sending => |e| std.log.info("Sending to {s}", .{e.subject}),
         .email_sent => |r| std.log.info("Sent in {d}ms", .{r.duration_ms}),
@@ -166,26 +166,26 @@ The telemetry system emits these events:
 
 ## Using the mailer in a controller
 
-Here is a complete example of sending email from a zzz controller:
+Here is a complete example of sending email from a pidgn controller:
 
 ```zig
 const std = @import("std");
-const zzz = @import("zzz");
-const zzz_mailer = @import("zzz_mailer");
+const pidgn = @import("pidgn");
+const pidgn_mailer = @import("pidgn_mailer");
 
-const Email = zzz_mailer.Email;
-const DevAdapter = zzz_mailer.DevAdapter;
-const DevMailer = zzz_mailer.DevMailer;
+const Email = pidgn_mailer.Email;
+const DevAdapter = pidgn_mailer.DevAdapter;
+const DevMailer = pidgn_mailer.DevMailer;
 
 var mailer: DevMailer = DevMailer.init(.{});
 
-fn sendWelcome(ctx: *zzz.Context) !void {
+fn sendWelcome(ctx: *pidgn.Context) !void {
     const email = Email{
         .from = .{ .email = "noreply@example.com", .name = "Example App" },
         .to = &.{.{ .email = "user@example.com", .name = "Test User" }},
         .subject = "Welcome to our app!",
-        .text_body = "Hello from zzz_mailer!",
-        .html_body = "<h1>Welcome!</h1><p>Hello from zzz_mailer!</p>",
+        .text_body = "Hello from pidgn_mailer!",
+        .html_body = "<h1>Welcome!</h1><p>Hello from pidgn_mailer!</p>",
     };
 
     const result = mailer.send(email, ctx.allocator);

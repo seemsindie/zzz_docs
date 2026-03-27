@@ -1,11 +1,11 @@
 ---
 title: Quick Start
-description: Build your first zzz application in 5 minutes.
+description: Build your first pidgn application in 5 minutes.
 ---
 
 import { Steps } from '@astrojs/starlight/components';
 
-This guide walks you through building a small zzz application with routes, middleware, and JSON responses.
+This guide walks you through building a small pidgn application with routes, middleware, and JSON responses.
 
 ## Hello World
 
@@ -13,24 +13,24 @@ This guide walks you through building a small zzz application with routes, middl
 1. **Create a new project**
 
    ```bash
-   zzz new hello_zzz
-   cd hello_zzz
+   pidgn new hello_pidgn
+   cd hello_pidgn
    ```
 
 2. **Open `src/main.zig`** and replace its contents with:
 
    ```zig
    const std = @import("std");
-   const zzz = @import("zzz");
+   const pidgn = @import("pidgn");
 
-   fn index(ctx: *zzz.Context) !void {
-       ctx.text(.ok, "Hello from zzz!");
+   fn index(ctx: *pidgn.Context) !void {
+       ctx.text(.ok, "Hello from pidgn!");
    }
 
-   const App = zzz.Router.define(.{
-       .middleware = &.{zzz.logger},
+   const App = pidgn.Router.define(.{
+       .middleware = &.{pidgn.logger},
        .routes = &.{
-           zzz.Router.get("/", index),
+           pidgn.Router.get("/", index),
        },
    });
 
@@ -38,7 +38,7 @@ This guide walks you through building a small zzz application with routes, middl
        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
        defer _ = gpa.deinit();
 
-       var server = zzz.Server.init(gpa.allocator(), .{
+       var server = pidgn.Server.init(gpa.allocator(), .{
            .port = 4000,
        }, &App.handler);
 
@@ -53,25 +53,25 @@ This guide walks you through building a small zzz application with routes, middl
    zig build run
    ```
 
-   Visit `http://127.0.0.1:4000` — you should see "Hello from zzz!".
+   Visit `http://127.0.0.1:4000` — you should see "Hello from pidgn!".
 </Steps>
 
 ## Adding middleware
 
-zzz ships with 20 built-in middleware. Let's add a few common ones:
+pidgn ships with 20 built-in middleware. Let's add a few common ones:
 
 ```zig
-const App = zzz.Router.define(.{
+const App = pidgn.Router.define(.{
     .middleware = &.{
-        zzz.errorHandler(.{ .show_details = true }),
-        zzz.logger,
-        zzz.requestId(.{}),
-        zzz.cors(.{ .allow_origins = &.{"*"} }),
-        zzz.bodyParser(.{}),
-        zzz.staticFiles(.{ .root = "public", .prefix = "/static" }),
+        pidgn.errorHandler(.{ .show_details = true }),
+        pidgn.logger,
+        pidgn.requestId(.{}),
+        pidgn.cors(.{ .allow_origins = &.{"*"} }),
+        pidgn.bodyParser(.{}),
+        pidgn.staticFiles(.{ .root = "public", .prefix = "/static" }),
     },
     .routes = &.{
-        zzz.Router.get("/", index),
+        pidgn.Router.get("/", index),
     },
 });
 ```
@@ -83,7 +83,7 @@ Middleware runs in the order listed — put error handling first so it catches e
 Add a route that returns JSON:
 
 ```zig
-fn getUser(ctx: *zzz.Context) !void {
+fn getUser(ctx: *pidgn.Context) !void {
     const user = .{
         .id = 1,
         .name = "Alice",
@@ -92,7 +92,7 @@ fn getUser(ctx: *zzz.Context) !void {
     try ctx.json(.ok, user);
 }
 
-fn createUser(ctx: *zzz.Context) !void {
+fn createUser(ctx: *pidgn.Context) !void {
     const body = try ctx.parseBody(struct {
         name: []const u8,
         email: []const u8,
@@ -106,9 +106,9 @@ Wire them into your router:
 
 ```zig
 .routes = &.{
-    zzz.Router.get("/", index),
-    zzz.Router.get("/users/:id", getUser),
-    zzz.Router.post("/users", createUser),
+    pidgn.Router.get("/", index),
+    pidgn.Router.get("/users/:id", getUser),
+    pidgn.Router.post("/users", createUser),
 },
 ```
 
@@ -118,7 +118,7 @@ For standard CRUD, use `Router.resource` to generate all routes at once:
 
 ```zig
 .routes = &.{
-    zzz.Router.resource("/posts", .{
+    pidgn.Router.resource("/posts", .{
         .index = listPosts,
         .show = showPost,
         .create = createPost,
@@ -136,13 +136,13 @@ Group routes under a prefix with shared middleware:
 
 ```zig
 .routes = &.{
-    zzz.Router.get("/", index),
+    pidgn.Router.get("/", index),
 
-    zzz.Router.scope("/api", .{
-        .middleware = &.{ zzz.bearerAuth(.{ .validate = &myValidator }) },
+    pidgn.Router.scope("/api", .{
+        .middleware = &.{ pidgn.bearerAuth(.{ .validate = &myValidator }) },
     }, &.{
-        zzz.Router.get("/me", currentUser),
-        zzz.Router.resource("/posts", .{
+        pidgn.Router.get("/me", currentUser),
+        pidgn.Router.resource("/posts", .{
             .index = listPosts,
             .create = createPost,
         }),
@@ -162,7 +162,7 @@ If your project uses bundled assets, run `zzz assets watch` in a separate termin
 
 ## Next steps
 
-You now have a working zzz application with routing, middleware, and JSON. From here:
+You now have a working pidgn application with routing, middleware, and JSON. From here:
 
 - Learn about [Routing](/core/routing/) in depth
 - Add a [Database](/database/overview/)

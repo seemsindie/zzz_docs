@@ -1,16 +1,16 @@
 ---
 title: Database Migrations
-description: Create, run, and roll back database migrations using the zzz migrate command.
+description: Create, run, and roll back database migrations using the pidgn migrate command.
 ---
 
 import { Steps } from '@astrojs/starlight/components';
 
-The `zzz migrate` command manages database schema changes. It delegates to your application's built-in migration runner by invoking `zig build run` with migration flags, so migrations execute within your app's database context.
+The `pidgn migrate` command manages database schema changes. It delegates to your application's built-in migration runner by invoking `zig build run` with migration flags, so migrations execute within your app's database context.
 
 ## Usage
 
 ```bash
-zzz migrate [subcommand]
+pidgn migrate [subcommand]
 ```
 
 | Subcommand | Description |
@@ -24,7 +24,7 @@ zzz migrate [subcommand]
 Migrations are generated automatically when you use the model generator:
 
 ```bash
-zzz gen model Post title:string body:text published:boolean
+pidgn gen model Post title:string body:text published:boolean
 # Generated: src/post.zig
 # Generated: priv/migrations/001_create_post.zig
 ```
@@ -32,7 +32,7 @@ zzz gen model Post title:string body:text published:boolean
 Migration files live in `priv/migrations/` and follow a numbered naming convention (`001_create_post.zig`, `002_create_comment.zig`, etc.). Each file exports two functions:
 
 ```zig
-const MigrationContext = @import("zzz_db").MigrationContext;
+const MigrationContext = @import("pidgn_db").MigrationContext;
 
 pub fn up(ctx: *MigrationContext) !void {
     try ctx.createTable("post", &.{
@@ -61,10 +61,10 @@ pub fn down(ctx: *MigrationContext) !void {
 2. Run all pending migrations:
 
    ```bash
-   zzz migrate
+   pidgn migrate
    ```
 
-   This is equivalent to `zzz migrate up`. The CLI runs `zig build run -- --migrate` under the hood, which builds your application and executes the migration runner.
+   This is equivalent to `pidgn migrate up`. The CLI runs `zig build run -- --migrate` under the hood, which builds your application and executes the migration runner.
 </Steps>
 
 ## Rolling back
@@ -72,7 +72,7 @@ pub fn down(ctx: *MigrationContext) !void {
 To undo the most recently applied migration:
 
 ```bash
-zzz migrate rollback
+pidgn migrate rollback
 ```
 
 This calls `zig build run -- --migrate-rollback`, which invokes the `down` function of the last applied migration.
@@ -82,7 +82,7 @@ This calls `zig build run -- --migrate-rollback`, which invokes the `down` funct
 To see which migrations have been applied and which are still pending:
 
 ```bash
-zzz migrate status
+pidgn migrate status
 ```
 
 This calls `zig build run -- --migrate-status` and prints a table of migration names with their current state.
@@ -102,13 +102,13 @@ Each file must export `up` and `down` functions that accept a `*MigrationContext
 
 ## How it works
 
-The `zzz migrate` command does not connect to the database directly. Instead, it spawns `zig build run` with a special flag:
+The `pidgn migrate` command does not connect to the database directly. Instead, it spawns `zig build run` with a special flag:
 
 | CLI command | Underlying invocation |
 |-------------|----------------------|
-| `zzz migrate` | `zig build run -- --migrate` |
-| `zzz migrate rollback` | `zig build run -- --migrate-rollback` |
-| `zzz migrate status` | `zig build run -- --migrate-status` |
+| `pidgn migrate` | `zig build run -- --migrate` |
+| `pidgn migrate rollback` | `zig build run -- --migrate-rollback` |
+| `pidgn migrate status` | `zig build run -- --migrate-status` |
 
 This means your application's `build.zig` and database configuration are always used, ensuring migrations run against the correct database with the correct environment settings.
 

@@ -1,11 +1,11 @@
 ---
 title: "Database Overview"
-description: "Introduction to zzz_db -- the database layer for the zzz web framework, providing SQLite and PostgreSQL support with compile-time schemas, type-safe repositories, and composable query builders."
+description: "Introduction to pidgn_db -- the database layer for the pidgn web framework, providing SQLite and PostgreSQL support with compile-time schemas, type-safe repositories, and composable query builders."
 ---
 
 import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
 
-`zzz_db` is the database layer for the zzz web framework. It provides a unified API for SQLite and PostgreSQL with compile-time schema definitions, type-safe repository operations, a composable query builder, and connection pooling.
+`pidgn_db` is the database layer for the pidgn web framework. It provides a unified API for SQLite and PostgreSQL with compile-time schema definitions, type-safe repository operations, a composable query builder, and connection pooling.
 
 ## Features
 
@@ -27,7 +27,7 @@ import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
 
 ## Architecture
 
-`zzz_db` follows a layered architecture with three primary abstractions:
+`pidgn_db` follows a layered architecture with three primary abstractions:
 
 ```
 Schema  -->  Query  -->  Repo
@@ -44,12 +44,12 @@ Supporting these are **Pool** (manages a fixed set of connections), **Transactio
 
 ## Adding the dependency
 
-Add `zzz_db` to your `build.zig.zon`:
+Add `pidgn_db` to your `build.zig.zon`:
 
 ```zig
 .dependencies = .{
-    .zzz_db = .{
-        .path = "../zzz_db",
+    .pidgn_db = .{
+        .path = "../pidgn_db",
     },
 },
 ```
@@ -57,11 +57,11 @@ Add `zzz_db` to your `build.zig.zon`:
 Then in your `build.zig`, import the module:
 
 ```zig
-const zzz_db_dep = b.dependency("zzz_db", .{
+const pidgn_db_dep = b.dependency("pidgn_db", .{
     .target = target,
     .optimize = optimize,
 });
-exe.root_module.addImport("zzz_db", zzz_db_dep.module("zzz_db"));
+exe.root_module.addImport("pidgn_db", pidgn_db_dep.module("pidgn_db"));
 ```
 
 To enable PostgreSQL support, pass `-Dpostgres=true` when building:
@@ -77,7 +77,7 @@ zig build -Dpostgres=true
 1. **Define a schema**
 
     ```zig
-    const zzz_db = @import("zzz_db");
+    const pidgn_db = @import("pidgn_db");
 
     pub const User = struct {
         id: i64,
@@ -86,7 +86,7 @@ zig build -Dpostgres=true
         inserted_at: i64 = 0,
         updated_at: i64 = 0,
 
-        pub const Meta = zzz_db.Schema.define(@This(), .{
+        pub const Meta = pidgn_db.Schema.define(@This(), .{
             .table = "users",
             .primary_key = "id",
             .timestamps = true,
@@ -99,7 +99,7 @@ zig build -Dpostgres=true
     <Tabs>
     <TabItem label="SQLite">
     ```zig
-    var pool = try zzz_db.SqlitePool.init(.{
+    var pool = try pidgn_db.SqlitePool.init(.{
         .size = 5,
         .connection = .{ .database = "myapp.db" },
     });
@@ -108,7 +108,7 @@ zig build -Dpostgres=true
     </TabItem>
     <TabItem label="PostgreSQL">
     ```zig
-    var pool = try zzz_db.PgPool.init(.{
+    var pool = try pidgn_db.PgPool.init(.{
         .size = 5,
         .connection = .{ .database = "postgresql://localhost/myapp" },
     });
@@ -120,7 +120,7 @@ zig build -Dpostgres=true
 3. **Initialize a repository**
 
     ```zig
-    var repo = zzz_db.SqliteRepo.init(&pool);
+    var repo = pidgn_db.SqliteRepo.init(&pool);
     ```
 
 4. **Insert a record**
@@ -131,19 +131,19 @@ zig build -Dpostgres=true
         .name = "Alice",
         .email = "alice@example.com",
     }, allocator);
-    defer zzz_db.freeOne(User, &user, allocator);
+    defer pidgn_db.freeOne(User, &user, allocator);
     ```
 
 5. **Query records**
 
     ```zig
-    const query = zzz_db.Query(User).init()
+    const query = pidgn_db.Query(User).init()
         .where("name", .eq, "Alice")
         .orderBy("inserted_at", .desc)
         .limit(10);
 
     const users = try repo.all(User, query, allocator);
-    defer zzz_db.freeAll(User, users, allocator);
+    defer pidgn_db.freeAll(User, users, allocator);
     ```
 
 </Steps>
@@ -167,16 +167,16 @@ zig build -Dpostgres=true
 
 ## Memory management
 
-`zzz_db` allocates memory for string fields in query results. You are responsible for freeing these allocations:
+`pidgn_db` allocates memory for string fields in query results. You are responsible for freeing these allocations:
 
-- **`zzz_db.freeAll(T, items, allocator)`** -- frees a slice returned by `repo.all()` or `repo.rawAll()`, including all owned string fields
-- **`zzz_db.freeOne(T, &item, allocator)`** -- frees string fields in a single struct returned by `repo.get()`, `repo.one()`, `repo.insert()`, or `repo.update()`
+- **`pidgn_db.freeAll(T, items, allocator)`** -- frees a slice returned by `repo.all()` or `repo.rawAll()`, including all owned string fields
+- **`pidgn_db.freeOne(T, &item, allocator)`** -- frees string fields in a single struct returned by `repo.get()`, `repo.one()`, `repo.insert()`, or `repo.update()`
 
 Always use `defer` to ensure cleanup:
 
 ```zig
 var user = try repo.insert(User, .{ .id = 0, .name = "Alice", .email = "a@example.com" }, allocator);
-defer zzz_db.freeOne(User, &user, allocator);
+defer pidgn_db.freeOne(User, &user, allocator);
 ```
 
 ## Next steps

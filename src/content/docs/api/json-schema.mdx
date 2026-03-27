@@ -1,18 +1,18 @@
 ---
 title: "JSON Schema"
-description: "How zzz derives JSON Schema definitions from Zig types at compile time for use in OpenAPI specs."
+description: "How pidgn derives JSON Schema definitions from Zig types at compile time for use in OpenAPI specs."
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-zzz automatically generates JSON Schema definitions from your Zig types at compile time. These schemas appear in the `components/schemas` section of the generated OpenAPI spec when you reference types via `request_body` or `response_body` in your route annotations.
+pidgn automatically generates JSON Schema definitions from your Zig types at compile time. These schemas appear in the `components/schemas` section of the generated OpenAPI spec when you reference types via `request_body` or `response_body` in your route annotations.
 
 ## How it works
 
-The `zzz.swagger.jsonSchema` function accepts a Zig type and returns a comptime `[]const u8` containing the JSON Schema representation. The schema generator inspects Zig's type info to produce the corresponding JSON Schema type.
+The `pidgn.swagger.jsonSchema` function accepts a Zig type and returns a comptime `[]const u8` containing the JSON Schema representation. The schema generator inspects Zig's type info to produce the corresponding JSON Schema type.
 
 ```zig
-const schema = zzz.swagger.jsonSchema(MyStruct);
+const schema = pidgn.swagger.jsonSchema(MyStruct);
 // schema is a comptime string like:
 // {"type":"object","properties":{"id":{"type":"integer"},...},"required":["id",...]}
 ```
@@ -211,7 +211,7 @@ When you use `request_body` or `response_body` in a route annotation, the spec g
 4. References it from the operation via `$ref`
 
 ```zig
-zzz.Router.post("/api/users", createUser)
+pidgn.Router.post("/api/users", createUser)
     .doc(.{
         .summary = "Create user",
         .request_body = CreateUserRequest,
@@ -264,7 +264,7 @@ If multiple routes reference the same type, the schema is emitted only once in `
 While the spec generator handles schema generation automatically, you can also call `jsonSchema` directly for other purposes such as validation or debugging:
 
 ```zig
-const zzz = @import("zzz");
+const pidgn = @import("pidgn");
 
 const MyType = struct {
     id: i64,
@@ -273,7 +273,7 @@ const MyType = struct {
 };
 
 // At comptime:
-const schema_json = comptime zzz.swagger.jsonSchema(MyType);
+const schema_json = comptime pidgn.swagger.jsonSchema(MyType);
 
 // schema_json contains the full JSON Schema string
 ```
@@ -281,7 +281,7 @@ const schema_json = comptime zzz.swagger.jsonSchema(MyType);
 The `typeBaseName` helper is also available for extracting short type names:
 
 ```zig
-const name = comptime zzz.swagger.schema.typeBaseName(MyType);
+const name = comptime pidgn.swagger.schema.typeBaseName(MyType);
 // name == "MyType"
 ```
 

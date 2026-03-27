@@ -13,12 +13,12 @@ The HTTP test client lets you send requests through your router and make asserti
 
 ```zig
 const std = @import("std");
-const zzz = @import("zzz");
+const pidgn = @import("pidgn");
 
 const App = Router.define(.{ .routes = &.{ /* ... */ } });
 
 test "example" {
-    var client = zzz.testing.TestClient(App).init(std.testing.allocator);
+    var client = pidgn.testing.TestClient(App).init(std.testing.allocator);
     defer client.deinit();
 
     const resp = try client.get("/");
@@ -44,7 +44,7 @@ The client provides convenience methods for common HTTP verbs:
 
 ```zig
 test "CRUD operations" {
-    var client = zzz.testing.TestClient(App).init(std.testing.allocator);
+    var client = pidgn.testing.TestClient(App).init(std.testing.allocator);
     defer client.deinit();
 
     // Create
@@ -71,7 +71,7 @@ For requests that need custom headers, query strings, or multipart bodies, use t
 
 ```zig
 test "request with custom headers and query" {
-    var client = zzz.testing.TestClient(App).init(std.testing.allocator);
+    var client = pidgn.testing.TestClient(App).init(std.testing.allocator);
     defer client.deinit();
 
     var builder = client.request(.POST, "/api/upload");
@@ -104,7 +104,7 @@ Use `MultipartPart` to build multipart/form-data requests for file upload testin
 
 ```zig
 test "file upload" {
-    var client = zzz.testing.TestClient(App).init(std.testing.allocator);
+    var client = pidgn.testing.TestClient(App).init(std.testing.allocator);
     defer client.deinit();
 
     var builder = client.request(.POST, "/api/upload");
@@ -188,7 +188,7 @@ When `follow_redirects` is disabled, you can assert on redirect responses:
 
 ```zig
 test "redirect response" {
-    var client = zzz.testing.TestClient(App).init(std.testing.allocator);
+    var client = pidgn.testing.TestClient(App).init(std.testing.allocator);
     defer client.deinit();
     client.follow_redirects = false;
 
@@ -203,7 +203,7 @@ Set headers that are included in every request. This is useful for authenticatio
 
 ```zig
 test "authenticated requests" {
-    var client = zzz.testing.TestClient(App).init(std.testing.allocator);
+    var client = pidgn.testing.TestClient(App).init(std.testing.allocator);
     defer client.deinit();
     client.setDefaultHeader("Authorization", "Bearer tok_secret");
 
@@ -229,7 +229,7 @@ The test client includes a built-in `CookieJar` that automatically:
 
 ```zig
 test "cookie-based session" {
-    var client = zzz.testing.TestClient(App).init(std.testing.allocator);
+    var client = pidgn.testing.TestClient(App).init(std.testing.allocator);
     defer client.deinit();
 
     // Login sets a cookie
@@ -251,7 +251,7 @@ By default, the client follows redirects (301, 302, 303, 307, 308) up to 5 hops.
 
 ```zig
 test "follows redirect" {
-    var client = zzz.testing.TestClient(App).init(std.testing.allocator);
+    var client = pidgn.testing.TestClient(App).init(std.testing.allocator);
     defer client.deinit();
     // client.follow_redirects is true by default
 
@@ -267,7 +267,7 @@ test "follows redirect" {
 
 ```zig
 test "inspect redirect" {
-    var client = zzz.testing.TestClient(App).init(std.testing.allocator);
+    var client = pidgn.testing.TestClient(App).init(std.testing.allocator);
     defer client.deinit();
     client.follow_redirects = false;
 
@@ -291,7 +291,7 @@ Call `reset()` to clear all cookies, tracked responses, and free arena memory. T
 
 ```zig
 test "reset between flows" {
-    var client = zzz.testing.TestClient(App).init(std.testing.allocator);
+    var client = pidgn.testing.TestClient(App).init(std.testing.allocator);
     defer client.deinit();
 
     // First flow
@@ -325,7 +325,7 @@ const App = Router.define(.{
 });
 
 test "middleware runs in tests" {
-    var client = zzz.testing.TestClient(App).init(std.testing.allocator);
+    var client = pidgn.testing.TestClient(App).init(std.testing.allocator);
     defer client.deinit();
 
     // Without auth header, middleware rejects the request
@@ -346,7 +346,7 @@ A common pattern for testing API endpoints that accept and return JSON:
 
 ```zig
 test "JSON API endpoint" {
-    var client = zzz.testing.TestClient(App).init(std.testing.allocator);
+    var client = pidgn.testing.TestClient(App).init(std.testing.allocator);
     defer client.deinit();
 
     const resp = try client.postJson("/api/users", "{\"name\":\"alice\",\"email\":\"a@example.com\"}");

@@ -1,6 +1,6 @@
 ---
 title: "Query Builder"
-description: "Compose database queries with a fluent, type-safe API in zzz_db."
+description: "Compose database queries with a fluent, type-safe API in pidgn_db."
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
@@ -12,9 +12,9 @@ The query builder provides a composable fluent API for constructing SELECT state
 Queries are parameterized by a schema type. Initialize with `Query(T).init()`:
 
 ```zig
-const zzz_db = @import("zzz_db");
+const pidgn_db = @import("pidgn_db");
 
-const q = zzz_db.Query(User).init();
+const q = pidgn_db.Query(User).init();
 ```
 
 By default, this selects all columns defined in the schema:
@@ -30,7 +30,7 @@ SELECT id, name, email, inserted_at, updated_at FROM users
 Filter rows with `where()`. Each call adds an `AND` condition:
 
 ```zig
-const q = zzz_db.Query(User).init()
+const q = pidgn_db.Query(User).init()
     .where("name", .eq, "Alice")
     .where("email", .like, "%@example.com");
 ```
@@ -44,7 +44,7 @@ SELECT ... FROM users WHERE name = ? AND email LIKE ?
 Use `orWhere()` for `OR` clauses:
 
 ```zig
-const q = zzz_db.Query(User).init()
+const q = pidgn_db.Query(User).init()
     .where("name", .eq, "Alice")
     .orWhere("name", .eq, "Bob");
 ```
@@ -74,7 +74,7 @@ The `Op` enum provides these operators:
 For `IS NULL` and `IS NOT NULL`, pass `null` as the value:
 
 ```zig
-const q = zzz_db.Query(User).init()
+const q = pidgn_db.Query(User).init()
     .where("deleted_at", .is_null, null)
     .where("email", .is_not_null, null);
 ```
@@ -88,7 +88,7 @@ SELECT ... FROM users WHERE deleted_at IS NULL AND email IS NOT NULL
 For complex conditions like subqueries, use `whereRaw()`:
 
 ```zig
-const q = zzz_db.Query(User).init()
+const q = pidgn_db.Query(User).init()
     .whereRaw("id IN (SELECT user_id FROM orders)");
 ```
 
@@ -103,7 +103,7 @@ Raw fragments are inserted as-is -- no bind parameters are generated.
 Use `orderBy()` to sort results. Multiple calls add additional sort columns:
 
 ```zig
-const q = zzz_db.Query(User).init()
+const q = pidgn_db.Query(User).init()
     .orderBy("name", .asc)
     .orderBy("inserted_at", .desc);
 ```
@@ -122,7 +122,7 @@ Control result size with `limit()` and `offset()`:
 const page = 3;
 const per_page = 20;
 
-const q = zzz_db.Query(User).init()
+const q = pidgn_db.Query(User).init()
     .orderBy("id", .asc)
     .limit(per_page)
     .offset((page - 1) * per_page);
@@ -137,7 +137,7 @@ SELECT ... FROM users ORDER BY id ASC LIMIT 20 OFFSET 40
 ### Inner join
 
 ```zig
-const q = zzz_db.Query(User).init()
+const q = pidgn_db.Query(User).init()
     .select("users.*, posts.title")
     .innerJoin("posts", "users.id", "posts.user_id");
 ```
@@ -149,7 +149,7 @@ SELECT users.*, posts.title FROM users INNER JOIN posts ON users.id = posts.user
 ### Left join
 
 ```zig
-const q = zzz_db.Query(User).init()
+const q = pidgn_db.Query(User).init()
     .select("users.*, orders.total")
     .leftJoin("orders", "users.id", "orders.user_id")
     .where("orders.total", .gt, "100");
@@ -164,7 +164,7 @@ SELECT users.*, orders.total FROM users LEFT JOIN orders ON users.id = orders.us
 For right and full joins, use the generic `join()` method:
 
 ```zig
-const q = zzz_db.Query(User).init()
+const q = pidgn_db.Query(User).init()
     .join(.right, "departments", "users.dept_id", "departments.id");
 ```
 
@@ -175,7 +175,7 @@ Available join types: `.inner`, `.left`, `.right`, `.full`.
 ### Group by
 
 ```zig
-const q = zzz_db.Query(User).init()
+const q = pidgn_db.Query(User).init()
     .select("name, COUNT(*) as cnt")
     .groupBy("name");
 ```
@@ -189,7 +189,7 @@ SELECT name, COUNT(*) as cnt FROM users GROUP BY name
 Filter groups with `having()`:
 
 ```zig
-const q = zzz_db.Query(User).init()
+const q = pidgn_db.Query(User).init()
     .select("name, COUNT(*) as cnt")
     .groupBy("name")
     .having("COUNT(*)", .gt, "1");
@@ -202,7 +202,7 @@ SELECT name, COUNT(*) as cnt FROM users GROUP BY name HAVING COUNT(*) > ?
 ### Combined example
 
 ```zig
-const q = zzz_db.Query(User).init()
+const q = pidgn_db.Query(User).init()
     .select("users.name, COUNT(posts.id) as post_count")
     .innerJoin("posts", "users.id", "posts.user_id")
     .groupBy("users.name")
@@ -216,7 +216,7 @@ const q = zzz_db.Query(User).init()
 Override the default column list with `select()`:
 
 ```zig
-const q = zzz_db.Query(User).init()
+const q = pidgn_db.Query(User).init()
     .select("name, email");
 ```
 
@@ -229,7 +229,7 @@ SELECT name, email FROM users
 Append arbitrary SQL to the end of the query with `raw()`:
 
 ```zig
-const q = zzz_db.Query(User).init()
+const q = pidgn_db.Query(User).init()
     .raw("FOR UPDATE");
 ```
 
@@ -242,10 +242,10 @@ SELECT ... FROM users FOR UPDATE
 Combine two queries with `merge()`. The second query's clauses are appended to the first:
 
 ```zig
-const base = zzz_db.Query(User).init()
+const base = pidgn_db.Query(User).init()
     .where("name", .eq, "Alice");
 
-const pagination = zzz_db.Query(User).init()
+const pagination = pidgn_db.Query(User).init()
     .limit(10)
     .offset(20);
 
@@ -261,13 +261,13 @@ Merge combines where clauses, order clauses, join clauses, group by fields, and 
 This is useful for building reusable query fragments:
 
 ```zig
-fn paginated(comptime T: type, page: u32, per_page: u32) zzz_db.Query(T) {
-    return zzz_db.Query(T).init()
+fn paginated(comptime T: type, page: u32, per_page: u32) pidgn_db.Query(T) {
+    return pidgn_db.Query(T).init()
         .limit(per_page)
         .offset((page - 1) * per_page);
 }
 
-const q = zzz_db.Query(User).init()
+const q = pidgn_db.Query(User).init()
     .where("active", .eq, "1")
     .orderBy("name", .asc)
     .merge(paginated(User, 3, 25));
@@ -278,15 +278,15 @@ const q = zzz_db.Query(User).init()
 Queries are executed through the [Repository](/database/repository/):
 
 ```zig
-var repo = zzz_db.SqliteRepo.init(&pool);
+var repo = pidgn_db.SqliteRepo.init(&pool);
 
 // Get all results
 const users = try repo.all(User, query, allocator);
-defer zzz_db.freeAll(User, users, allocator);
+defer pidgn_db.freeAll(User, users, allocator);
 
 // Get first result
 if (try repo.one(User, query, allocator)) |*user| {
-    defer zzz_db.freeOne(User, user, allocator);
+    defer pidgn_db.freeOne(User, user, allocator);
 }
 
 // Count matching rows

@@ -1,11 +1,11 @@
 ---
 title: "Server Backends"
-description: "Understand the I/O backend abstraction in zzz, choose between the native zzz backend and the libhv event-loop backend, and configure server options for your deployment target."
+description: "Understand the I/O backend abstraction in pidgn, choose between the native pidgn backend and the libhv event-loop backend, and configure server options for your deployment target."
 ---
 
 import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
 
-zzz uses a pluggable backend architecture that lets you swap out the underlying I/O strategy at build time. The two available backends -- **zzz** (native, the default) and **libhv** (event-loop) -- each have different strengths depending on your target platform and workload.
+pidgn uses a pluggable backend architecture that lets you swap out the underlying I/O strategy at build time. The two available backends -- **pidgn** (native, the default) and **libhv** (event-loop) -- each have different strengths depending on your target platform and workload.
 
 ## Backend abstraction
 
@@ -16,7 +16,7 @@ pub const SelectedBackend = blk: {
     if (std.mem.eql(u8, backend_name, "libhv")) {
         break :blk @import("backends/libhv.zig");
     } else {
-        break :blk @import("backends/zzz.zig");
+        break :blk @import("backends/pidgn.zig");
     }
 };
 ```
@@ -25,7 +25,7 @@ Both backends expose the same public interface -- a `listen(server, io)` functio
 
 ## Available backends
 
-### Native zzz backend (default)
+### Native pidgn backend (default)
 
 The native backend uses Zig 0.16's `std.Io` networking layer with a **thread-pool + bounded queue** architecture:
 
@@ -53,12 +53,12 @@ libhv uses a single-threaded event loop driven by callbacks (`onAccept`, `onRead
 The backend is chosen at build time via the `-Dbackend` option.
 
 <Tabs>
-<TabItem label="Default (zzz)">
+<TabItem label="Default (pidgn)">
 
 ```sh
 zig build run
 # or explicitly:
-zig build run -Dbackend=zzz
+zig build run -Dbackend=pidgn
 ```
 
 </TabItem>
@@ -86,7 +86,7 @@ pub const Config = struct {
     read_timeout_ms: u32 = 30_000,             // 30 s
     write_timeout_ms: u32 = 30_000,            // 30 s
     keepalive_timeout_ms: u32 = 65_000,        // 65 s
-    worker_threads: u16 = 4,                   // 0 = single-threaded (zzz backend)
+    worker_threads: u16 = 4,                   // 0 = single-threaded (pidgn backend)
     max_connections: u32 = 1024,
     max_requests_per_connection: u32 = 100,
     kernel_backlog: u31 = 128,
@@ -103,8 +103,8 @@ pub const Config = struct {
 | `read_timeout_ms` | Read timeout per request | 30 s |
 | `write_timeout_ms` | Write (send) timeout | 30 s |
 | `keepalive_timeout_ms` | Keep-alive idle timeout | 65 s |
-| `worker_threads` | Worker thread count (zzz backend; 0 = 1 thread) | 4 |
-| `max_connections` | Bounded queue capacity (zzz backend) | 1024 |
+| `worker_threads` | Worker thread count (pidgn backend; 0 = 1 thread) | 4 |
+| `max_connections` | Bounded queue capacity (pidgn backend) | 1024 |
 | `max_requests_per_connection` | Max pipelined requests per connection | 100 |
 | `kernel_backlog` | TCP listen backlog (`SO_BACKLOG`) | 128 |
 | `tls` | Optional TLS certificate/key paths for HTTPS | `null` |
@@ -114,7 +114,7 @@ pub const Config = struct {
 Each backend also defines a `BackendConfig` struct for fine-tuning:
 
 <Tabs>
-<TabItem label="zzz backend">
+<TabItem label="pidgn backend">
 
 ```zig
 pub const BackendConfig = struct {
@@ -149,7 +149,7 @@ const config: Server.Config = .{
 };
 ```
 
-The native zzz backend initializes an OpenSSL `SSL_CTX` and wraps each connection in TLS readers/writers. The libhv backend uses libhv's built-in SSL support (`hloop_create_ssl_server`).
+The native pidgn backend initializes an OpenSSL `SSL_CTX` and wraps each connection in TLS readers/writers. The libhv backend uses libhv's built-in SSL support (`hloop_create_ssl_server`).
 
 ## Graceful shutdown
 
@@ -158,13 +158,13 @@ Both backends respond to `SIGINT` and `SIGTERM` signals:
 1. The signal handler sets a `shutdown_flag` (atomic bool) on the server.
 2. The accept loop stops accepting new connections.
 3. Active connections are given up to 10 seconds to drain via `drainConnections()`.
-4. Worker threads (zzz) or the event loop (libhv) are shut down cleanly.
+4. Worker threads (pidgn) or the event loop (libhv) are shut down cleanly.
 
 The libhv backend additionally calls `hloop_stop()` to break out of the event loop.
 
 ## Choosing the right backend
 
-| Consideration | zzz (native) | libhv |
+| Consideration | pidgn (native) | libhv |
 |--------------|-------------|-------|
 | **Architecture** | Thread pool + bounded queue | Single-threaded event loop |
 | **Concurrency model** | OS threads | Callbacks (non-blocking) |
@@ -174,11 +174,11 @@ The libhv backend additionally calls `hloop_stop()` to break out of the event lo
 | **Dependencies** | None (pure Zig) | Vendored libhv C library |
 | **Best for** | Simple deployments, CPU-bound handlers | High connection counts, I/O-heavy workloads |
 
-For most applications, the default **zzz** backend is a solid choice. Switch to **libhv** when you need platform-native I/O multiplexing, built-in timer support, or are handling a large number of concurrent WebSocket connections.
+For most applications, the default **pidgn** backend is a solid choice. Switch to **libhv** when you need platform-native I/O multiplexing, built-in timer support, or are handling a large number of concurrent WebSocket connections.
 
 ## Next steps
 
 - [Performance tuning](/advanced/performance/) -- optimize buffer sizes, compression, and connection settings
 - [Observability](/advanced/observability/) -- add structured logging, metrics, and health checks
 - [Deployment](/deployment/overview/) -- production deployment strategies
-- [Docker](/deployment/docker/) -- containerize your zzz application
+- [Docker](/deployment/docker/) -- containerize your pidgn application

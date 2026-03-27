@@ -18,10 +18,10 @@ The `Presence` module is a thread-safe, fixed-size registry (up to 512 entries) 
 1. **Track a user on join.** In your channel's `join` callback (or an event handler), call `Presence.track` with the socket, topic, a key, and metadata JSON.
 
    ```zig
-   const zzz = @import("zzz");
-   const Presence = zzz.Presence;
+   const pidgn = @import("pidgn");
+   const Presence = pidgn.Presence;
 
-   fn roomJoin(socket: *zzz.Socket, topic: []const u8, payload: []const u8) zzz.JoinResult {
+   fn roomJoin(socket: *pidgn.Socket, topic: []const u8, payload: []const u8) pidgn.JoinResult {
        // Track this user's presence in the topic
        _ = Presence.track(socket, topic, "user_42", "{\"name\":\"Alice\",\"status\":\"online\"}");
        return .ok;
@@ -33,7 +33,7 @@ The `Presence` module is a thread-safe, fixed-size registry (up to 512 entries) 
 3. **Query the presence list.** Use `Presence.list` to get a JSON array of all presences for a topic.
 
    ```zig
-   fn handleGetPresence(socket: *zzz.Socket, topic: []const u8, _: []const u8, _: []const u8) void {
+   fn handleGetPresence(socket: *pidgn.Socket, topic: []const u8, _: []const u8, _: []const u8) void {
        var buf: [4096]u8 = undefined;
        const presences = Presence.list(topic, &buf);
        socket.push(topic, "presence_state", presences);
@@ -106,10 +106,10 @@ Returns a JSON object with `joins` and `leaves` arrays. Currently performs a ful
 
 ```zig
 const std = @import("std");
-const zzz = @import("zzz");
-const Presence = zzz.Presence;
+const pidgn = @import("pidgn");
+const Presence = pidgn.Presence;
 
-fn chatJoin(socket: *zzz.Socket, topic: []const u8, payload: []const u8) zzz.JoinResult {
+fn chatJoin(socket: *pidgn.Socket, topic: []const u8, payload: []const u8) pidgn.JoinResult {
     // Get the username from assigns (set by auth middleware)
     const username = socket.getAssign("username") orelse "anonymous";
 
@@ -137,7 +137,7 @@ fn chatJoin(socket: *zzz.Socket, topic: []const u8, payload: []const u8) zzz.Joi
     return .ok;
 }
 
-fn chatLeave(socket: *zzz.Socket, topic: []const u8) void {
+fn chatLeave(socket: *pidgn.Socket, topic: []const u8) void {
     const username = socket.getAssign("username") orelse "anonymous";
 
     // Notify others that someone left
@@ -148,13 +148,13 @@ fn chatLeave(socket: *zzz.Socket, topic: []const u8) void {
     socket.broadcastFrom(topic, "user_left", payload);
 }
 
-fn handleGetPresence(socket: *zzz.Socket, topic: []const u8, _: []const u8, _: []const u8) void {
+fn handleGetPresence(socket: *pidgn.Socket, topic: []const u8, _: []const u8, _: []const u8) void {
     var buf: [4096]u8 = undefined;
     const presences = Presence.list(topic, &buf);
     socket.push(topic, "presence_state", presences);
 }
 
-const chat_channel: zzz.ChannelDef = .{
+const chat_channel: pidgn.ChannelDef = .{
     .topic_pattern = "chat:*",
     .join = &chatJoin,
     .leave = &chatLeave,
@@ -189,4 +189,4 @@ If you reach the 512-entry limit, `Presence.track` returns `false` and the entry
 ## Next steps
 
 - [Channels](/websockets/channels/) -- define channel topics with join/leave handlers and event routing
-- [zzz.js Client](/websockets/zzz-js-client/) -- connect to channels and receive presence updates from the browser
+- [pidgn.js Client](/websockets/pidgn-js-client/) -- connect to channels and receive presence updates from the browser

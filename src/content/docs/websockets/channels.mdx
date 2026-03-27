@@ -1,6 +1,6 @@
 ---
 title: "Channels"
-description: "Phoenix-style channels with topic-based pub/sub, event routing, join/leave lifecycle, and broadcasting in zzz."
+description: "Phoenix-style channels with topic-based pub/sub, event routing, join/leave lifecycle, and broadcasting in pidgn."
 ---
 
 import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
@@ -23,23 +23,23 @@ A channel system has four layers:
 1. **Define a channel.** Create a `ChannelDef` with a topic pattern, join handler, and event handlers.
 
    ```zig
-   const zzz = @import("zzz");
+   const pidgn = @import("pidgn");
 
-   fn roomJoin(_: *zzz.Socket, _: []const u8, _: []const u8) zzz.JoinResult {
+   fn roomJoin(_: *pidgn.Socket, _: []const u8, _: []const u8) pidgn.JoinResult {
        // Return .ok to allow, .@"error" to reject
        return .ok;
    }
 
-   fn roomLeave(_: *zzz.Socket, _: []const u8) void {
+   fn roomLeave(_: *pidgn.Socket, _: []const u8) void {
        // Cleanup when a client leaves the topic
    }
 
-   fn handleNewMsg(socket: *zzz.Socket, topic: []const u8, _: []const u8, payload: []const u8) void {
+   fn handleNewMsg(socket: *pidgn.Socket, topic: []const u8, _: []const u8, payload: []const u8) void {
        // Broadcast the message to all subscribers of this topic
        socket.broadcast(topic, "new_msg", payload);
    }
 
-   const room_channel: zzz.ChannelDef = .{
+   const room_channel: pidgn.ChannelDef = .{
        .topic_pattern = "room:*",
        .join = &roomJoin,
        .leave = &roomLeave,
@@ -52,14 +52,14 @@ A channel system has four layers:
 2. **Register the channel route.** Use `Router.channel` to create a WebSocket endpoint that speaks the channel protocol.
 
    ```zig
-   pub const ctrl = zzz.Controller.define(.{}, &.{
-       zzz.Router.channel("/socket", .{
+   pub const ctrl = pidgn.Controller.define(.{}, &.{
+       pidgn.Router.channel("/socket", .{
            .channels = &.{room_channel},
        }),
    });
    ```
 
-3. **Connect from the client.** Use the [zzz.js client](/websockets/zzz-js-client/) to connect and join the topic.
+3. **Connect from the client.** Use the [pidgn.js client](/websockets/pidgn-js-client/) to connect and join the topic.
 
 </Steps>
 
@@ -135,7 +135,7 @@ The handler function receives four arguments: `(socket, topic, event, payload_js
 The join callback is the right place to authorize access to a topic. You can inspect assigns set by authentication middleware, check the payload, or validate the topic name:
 
 ```zig
-fn roomJoin(socket: *zzz.Socket, topic: []const u8, payload: []const u8) zzz.JoinResult {
+fn roomJoin(socket: *pidgn.Socket, topic: []const u8, payload: []const u8) pidgn.JoinResult {
     // Check if user is authenticated
     const user = socket.getAssign("user_id") orelse return .@"error";
 
@@ -153,7 +153,7 @@ There are three ways to send messages to topic subscribers:
 <Tabs>
 <TabItem label="Broadcast to all">
 ```zig
-fn handleNewMsg(socket: *zzz.Socket, topic: []const u8, _: []const u8, payload: []const u8) void {
+fn handleNewMsg(socket: *pidgn.Socket, topic: []const u8, _: []const u8, payload: []const u8) void {
     // Everyone in the topic sees this, including the sender
     socket.broadcast(topic, "new_msg", payload);
 }
@@ -161,7 +161,7 @@ fn handleNewMsg(socket: *zzz.Socket, topic: []const u8, _: []const u8, payload: 
 </TabItem>
 <TabItem label="Broadcast excluding sender">
 ```zig
-fn handleTyping(socket: *zzz.Socket, topic: []const u8, _: []const u8, payload: []const u8) void {
+fn handleTyping(socket: *pidgn.Socket, topic: []const u8, _: []const u8, payload: []const u8) void {
     // Everyone except the sender sees this
     socket.broadcastFrom(topic, "user_typing", payload);
 }
@@ -169,7 +169,7 @@ fn handleTyping(socket: *zzz.Socket, topic: []const u8, _: []const u8, payload: 
 </TabItem>
 <TabItem label="Direct message">
 ```zig
-fn handleWhisper(socket: *zzz.Socket, topic: []const u8, _: []const u8, payload: []const u8) void {
+fn handleWhisper(socket: *pidgn.Socket, topic: []const u8, _: []const u8, payload: []const u8) void {
     // Send to a specific WebSocket (must be subscribed to the topic)
     // target_ws would come from your own lookup logic
     socket.pushTo(topic, "whisper", target_ws, payload);
@@ -183,7 +183,7 @@ fn handleWhisper(socket: *zzz.Socket, topic: []const u8, _: []const u8, payload:
 The `PubSub` module is the underlying registry that tracks topic subscriptions. The channel middleware manages subscriptions automatically during join/leave, but you can also use PubSub directly for advanced scenarios:
 
 ```zig
-const PubSub = zzz.PubSub;
+const PubSub = pidgn.PubSub;
 
 // Subscribe a WebSocket to a topic
 _ = PubSub.subscribe("alerts", ws);
@@ -244,19 +244,19 @@ The channel system uses a JSON wire protocol. Every message is a JSON object wit
 
 ```zig
 const std = @import("std");
-const zzz = @import("zzz");
+const pidgn = @import("pidgn");
 
-fn roomJoin(_: *zzz.Socket, _: []const u8, _: []const u8) zzz.JoinResult {
+fn roomJoin(_: *pidgn.Socket, _: []const u8, _: []const u8) pidgn.JoinResult {
     return .ok;
 }
 
-fn roomLeave(_: *zzz.Socket, _: []const u8) void {}
+fn roomLeave(_: *pidgn.Socket, _: []const u8) void {}
 
-fn handleNewMsg(socket: *zzz.Socket, topic: []const u8, _: []const u8, payload: []const u8) void {
+fn handleNewMsg(socket: *pidgn.Socket, topic: []const u8, _: []const u8, payload: []const u8) void {
     socket.broadcast(topic, "new_msg", payload);
 }
 
-const room_channel: zzz.ChannelDef = .{
+const room_channel: pidgn.ChannelDef = .{
     .topic_pattern = "room:*",
     .join = &roomJoin,
     .leave = &roomLeave,
@@ -265,8 +265,8 @@ const room_channel: zzz.ChannelDef = .{
     },
 };
 
-pub const ctrl = zzz.Controller.define(.{}, &.{
-    zzz.Router.channel("/socket", .{
+pub const ctrl = pidgn.Controller.define(.{}, &.{
+    pidgn.Router.channel("/socket", .{
         .channels = &.{room_channel},
     }),
 });
@@ -275,5 +275,5 @@ pub const ctrl = zzz.Controller.define(.{}, &.{
 ## Next steps
 
 - [Presence](/websockets/presence/) -- track which users are connected to each channel
-- [zzz.js Client](/websockets/zzz-js-client/) -- connect to channels from the browser
+- [pidgn.js Client](/websockets/pidgn-js-client/) -- connect to channels from the browser
 - [WebSockets Overview](/websockets/overview/) -- lower-level WebSocket API without the channel abstraction

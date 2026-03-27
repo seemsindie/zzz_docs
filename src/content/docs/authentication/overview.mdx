@@ -1,35 +1,35 @@
 ---
 title: "Auth & Security Overview"
-description: "Overview of authentication and security middleware in zzz, including bearer tokens, basic auth, JWT, sessions, CSRF protection, and rate limiting."
+description: "Overview of authentication and security middleware in pidgn, including bearer tokens, basic auth, JWT, sessions, CSRF protection, and rate limiting."
 ---
 
 import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
 
-zzz ships with a complete suite of authentication and security middleware that you can compose together to protect your application. Every middleware follows the same pattern: a comptime configuration struct, a function that returns a `HandlerFn`, and data passed between middleware via the `ctx.assigns` key-value store.
+pidgn ships with a complete suite of authentication and security middleware that you can compose together to protect your application. Every middleware follows the same pattern: a comptime configuration struct, a function that returns a `HandlerFn`, and data passed between middleware via the `ctx.assigns` key-value store.
 
 ## Available middleware
 
 | Middleware | Function | Purpose |
 |---|---|---|
-| Bearer token | `zzz.bearerAuth(.{})` | Extracts `Authorization: Bearer <token>` into assigns |
-| Basic auth | `zzz.basicAuth(.{})` | Extracts `Authorization: Basic <credentials>` into assigns |
-| JWT (HMAC-SHA256) | `zzz.jwtAuth(.{})` | Verifies JWT signature and extracts payload into assigns |
-| Sessions | `zzz.session(.{})` | Cookie-based session management with an in-memory store |
-| CSRF protection | `zzz.csrf(.{})` | Per-session CSRF tokens; validates unsafe HTTP methods |
-| Rate limiting | `zzz.rateLimit(.{})` | Token-bucket rate limiter keyed by client header |
+| Bearer token | `pidgn.bearerAuth(.{})` | Extracts `Authorization: Bearer <token>` into assigns |
+| Basic auth | `pidgn.basicAuth(.{})` | Extracts `Authorization: Basic <credentials>` into assigns |
+| JWT (HMAC-SHA256) | `pidgn.jwtAuth(.{})` | Verifies JWT signature and extracts payload into assigns |
+| Sessions | `pidgn.session(.{})` | Cookie-based session management with an in-memory store |
+| CSRF protection | `pidgn.csrf(.{})` | Per-session CSRF tokens; validates unsafe HTTP methods |
+| Rate limiting | `pidgn.rateLimit(.{})` | Token-bucket rate limiter keyed by client header |
 
 ## How they compose
 
 Middleware runs in the order you declare it. Some middleware depends on others being earlier in the pipeline. The recommended ordering is:
 
 ```zig
-const App = zzz.Router.define(.{
+const App = pidgn.Router.define(.{
     .middleware = &.{
-        zzz.errorHandler(.{ .show_details = true }),
-        zzz.logger,
-        zzz.bodyParser,
-        zzz.session(.{}),        // must come before csrf
-        zzz.csrf(.{}),           // must come after session
+        pidgn.errorHandler(.{ .show_details = true }),
+        pidgn.logger,
+        pidgn.bodyParser,
+        pidgn.session(.{}),        // must come before csrf
+        pidgn.csrf(.{}),           // must come after session
     },
     .routes = routes,
 });
@@ -46,11 +46,11 @@ Key ordering rules:
 Global middleware is declared in the top-level `Router.define` config and applies to every route. Auth middleware is usually applied to a subset of routes using `Router.scope`:
 
 ```zig
-const routes = zzz.Router.scope("/api", &.{
-    zzz.bearerAuth(.{ .required = true }),
+const routes = pidgn.Router.scope("/api", &.{
+    pidgn.bearerAuth(.{ .required = true }),
 }, &.{
-    zzz.Router.get("/profile", profileHandler),
-    zzz.Router.get("/settings", settingsHandler),
+    pidgn.Router.get("/profile", profileHandler),
+    pidgn.Router.get("/settings", settingsHandler),
 });
 ```
 
@@ -58,14 +58,14 @@ You can nest multiple scopes with different auth strategies:
 
 ```zig
 const routes =
-    zzz.Router.scope("/auth", &.{zzz.bearerAuth(.{ .required = true })}, &.{
-        zzz.Router.get("/bearer", bearerHandler),
+    pidgn.Router.scope("/auth", &.{pidgn.bearerAuth(.{ .required = true })}, &.{
+        pidgn.Router.get("/bearer", bearerHandler),
     })
-    ++ zzz.Router.scope("/auth", &.{zzz.basicAuth(.{ .required = true })}, &.{
-        zzz.Router.get("/basic", basicHandler),
+    ++ pidgn.Router.scope("/auth", &.{pidgn.basicAuth(.{ .required = true })}, &.{
+        pidgn.Router.get("/basic", basicHandler),
     })
-    ++ zzz.Router.scope("/auth", &.{zzz.jwtAuth(.{ .secret = "my-secret", .required = true })}, &.{
-        zzz.Router.get("/jwt", jwtHandler),
+    ++ pidgn.Router.scope("/auth", &.{pidgn.jwtAuth(.{ .secret = "my-secret", .required = true })}, &.{
+        pidgn.Router.get("/jwt", jwtHandler),
     });
 ```
 
@@ -74,7 +74,7 @@ const routes =
 All auth middleware stores extracted data in the context assigns map, a fixed-size key-value store available to downstream handlers:
 
 ```zig
-fn protectedHandler(ctx: *zzz.Context) !void {
+fn protectedHandler(ctx: *pidgn.Context) !void {
     // Read data placed by auth middleware
     const token = ctx.getAssign("bearer_token") orelse {
         ctx.text(.unauthorized, "No token");

@@ -1,25 +1,25 @@
 ---
-title: "zzz.js Client"
-description: "Lightweight JavaScript client library for connecting to zzz WebSocket endpoints and channels from the browser, with auto-reconnect, heartbeats, and presence."
+title: "pidgn.js Client"
+description: "Lightweight JavaScript client library for connecting to pidgn WebSocket endpoints and channels from the browser, with auto-reconnect, heartbeats, and presence."
 ---
 
 import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
 
-zzz.js is a lightweight JavaScript client library bundled with the zzz framework. It provides two connection modes: a low-level WebSocket wrapper with auto-reconnect, and a higher-level channel socket for topic-based pub/sub. The library also includes a fetch wrapper with automatic CSRF token handling.
+pidgn.js is a lightweight JavaScript client library bundled with the pidgn framework. It provides two connection modes: a low-level WebSocket wrapper with auto-reconnect, and a higher-level channel socket for topic-based pub/sub. The library also includes a fetch wrapper with automatic CSRF token handling.
 
-## Serving zzz.js
+## Serving pidgn.js
 
-The zzz.js file is embedded in the framework binary and served via the `zzzJs` middleware. Add it to your middleware stack and it will serve the JavaScript file at a configurable path.
+The pidgn.js file is embedded in the framework binary and served via the `pidgnJs` middleware. Add it to your middleware stack and it will serve the JavaScript file at a configurable path.
 
 <Steps>
 
 1. **Add the middleware to your pipeline.**
 
    ```zig
-   const zzz = @import("zzz");
+   const pidgn = @import("pidgn");
 
-   const pipeline = zzz.Pipeline.define(&.{
-       zzz.zzzJs(.{}),  // Serves at /__zzz/zzz.js by default
+   const pipeline = pidgn.Pipeline.define(&.{
+       pidgn.pidgnJs(.{}),  // Serves at /__pidgn/pidgn.js by default
        // ... other middleware
    });
    ```
@@ -27,7 +27,7 @@ The zzz.js file is embedded in the framework binary and served via the `zzzJs` m
 2. **Include the script in your HTML.**
 
    ```html
-   <script src="/__zzz/zzz.js"></script>
+   <script src="/__pidgn/pidgn.js"></script>
    ```
 
 </Steps>
@@ -36,13 +36,13 @@ The zzz.js file is embedded in the framework binary and served via the `zzzJs` m
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `path` | `[]const u8` | `"/__zzz/zzz.js"` | URL path to serve the JavaScript file at |
+| `path` | `[]const u8` | `"/__pidgn/pidgn.js"` | URL path to serve the JavaScript file at |
 | `max_age` | `u32` | `86400` | `Cache-Control` max-age in seconds (default: 1 day) |
 
 To customize the path:
 
 ```zig
-zzz.zzzJs(.{ .path = "/assets/zzz.js", .max_age = 3600 }),
+pidgn.pidgnJs(.{ .path = "/assets/pidgn.js", .max_age = 3600 }),
 ```
 
 The middleware only responds to GET requests at the configured path. All other requests are passed through to the next handler.
@@ -249,7 +249,7 @@ The method and action are read from the form element's attributes.
 ## Complete example: chat client
 
 ```html
-<script src="/__zzz/zzz.js"></script>
+<script src="/__pidgn/pidgn.js"></script>
 <div id="messages"></div>
 <input id="input" type="text" placeholder="Type a message..." />
 <button id="send">Send</button>

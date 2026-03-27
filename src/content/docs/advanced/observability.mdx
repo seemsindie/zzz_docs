@@ -1,11 +1,11 @@
 ---
 title: "Observability"
-description: "Set up structured logging, Prometheus metrics, telemetry hooks, request IDs, and health check endpoints in your zzz application."
+description: "Set up structured logging, Prometheus metrics, telemetry hooks, request IDs, and health check endpoints in your pidgn application."
 ---
 
 import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
 
-zzz ships with a suite of middleware for production observability: structured logging, Prometheus-compatible metrics, lifecycle telemetry hooks, request ID propagation, and health check endpoints. All are configured at `comptime` and compose naturally with the middleware pipeline.
+pidgn ships with a suite of middleware for production observability: structured logging, Prometheus-compatible metrics, lifecycle telemetry hooks, request ID propagation, and health check endpoints. All are configured at `comptime` and compose naturally with the middleware pipeline.
 
 ## Quick setup
 
@@ -69,7 +69,7 @@ Output:
 
 ```
 [info] GET /api/users -> 200 (142us)
-[info] GET /api/users -> 200 (142us) [zzz-a1b2c3-0]
+[info] GET /api/users -> 200 (142us) [pidgn-a1b2c3-0]
 ```
 
 When a request ID is present (from the `requestId` middleware), it is appended in brackets.
@@ -84,7 +84,7 @@ structuredLogger(.{ .format = .json })
 Output:
 
 ```json
-{"level":"info","method":"GET","path":"/api/users","status":200,"duration_us":142,"request_id":"zzz-a1b2c3-0"}
+{"level":"info","method":"GET","path":"/api/users","status":200,"duration_us":142,"request_id":"pidgn-a1b2c3-0"}
 ```
 
 JSON format is recommended for production, where logs are typically ingested by a log aggregation system.
@@ -94,7 +94,7 @@ JSON format is recommended for production, where logs are typically ingested by 
 
 ### Simple logger
 
-For development, zzz also provides a simpler `logger` middleware that does not require configuration:
+For development, pidgn also provides a simpler `logger` middleware that does not require configuration:
 
 ```zig
 const App = Router.define(.{
@@ -131,7 +131,7 @@ pub const RequestIdConfig = struct {
 
 2. If the header exists, its value is used as-is. This lets load balancers or API gateways set the ID upstream.
 
-3. If no header is present, a new ID is generated in the format `zzz-{timestamp_hex}-{counter_hex}`, using a monotonic clock and an atomic counter to guarantee uniqueness.
+3. If no header is present, a new ID is generated in the format `pidgn-{timestamp_hex}-{counter_hex}`, using a monotonic clock and an atomic counter to guarantee uniqueness.
 
 4. The ID is stored in `ctx.assigns` under the configured key and added to the response headers.
 
@@ -167,11 +167,11 @@ pub const MetricsConfig = struct {
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `zzz_requests_total` | counter | Total number of HTTP requests processed. |
-| `zzz_requests_by_status{class="2xx"}` | counter | Request count grouped by status class (1xx, 2xx, 3xx, 4xx, 5xx, other). |
-| `zzz_requests_by_method{method="GET"}` | counter | Request count grouped by HTTP method (GET, HEAD, POST, PUT, DELETE, PATCH, OPTIONS, CONNECT, TRACE). |
-| `zzz_request_duration_us_sum` | counter | Cumulative request duration in microseconds. |
-| `zzz_request_duration_us_count` | counter | Number of timed requests (use with `_sum` to compute average latency). |
+| `pidgn_requests_total` | counter | Total number of HTTP requests processed. |
+| `pidgn_requests_by_status{class="2xx"}` | counter | Request count grouped by status class (1xx, 2xx, 3xx, 4xx, 5xx, other). |
+| `pidgn_requests_by_method{method="GET"}` | counter | Request count grouped by HTTP method (GET, HEAD, POST, PUT, DELETE, PATCH, OPTIONS, CONNECT, TRACE). |
+| `pidgn_request_duration_us_sum` | counter | Cumulative request duration in microseconds. |
+| `pidgn_request_duration_us_count` | counter | Number of timed requests (use with `_sum` to compute average latency). |
 
 All counters use atomic operations for thread safety.
 
@@ -181,7 +181,7 @@ Point your Prometheus scrape config at the metrics endpoint:
 
 ```yaml
 scrape_configs:
-  - job_name: 'zzz-app'
+  - job_name: 'pidgn-app'
     scrape_interval: 15s
     static_configs:
       - targets: ['localhost:8888']
@@ -193,7 +193,7 @@ scrape_configs:
 With the sum and count metrics, you can compute average request duration in Prometheus:
 
 ```promql
-rate(zzz_request_duration_us_sum[5m]) / rate(zzz_request_duration_us_count[5m])
+rate(pidgn_request_duration_us_sum[5m]) / rate(pidgn_request_duration_us_count[5m])
 ```
 
 ## Telemetry

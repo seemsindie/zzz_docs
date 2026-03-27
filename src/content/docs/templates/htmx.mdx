@@ -1,11 +1,11 @@
 ---
 title: "htmx Integration"
-description: "Using htmx with the zzz web framework -- middleware for request detection, response header helpers, partial rendering for fragments, and patterns for building interactive UIs."
+description: "Using htmx with the pidgn web framework -- middleware for request detection, response header helpers, partial rendering for fragments, and patterns for building interactive UIs."
 ---
 
 import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
 
-zzz provides first-class support for [htmx](https://htmx.org) through a middleware that detects htmx requests, context helpers that set htmx response headers, and partial rendering for returning HTML fragments without a layout wrapper.
+pidgn provides first-class support for [htmx](https://htmx.org) through a middleware that detects htmx requests, context helpers that set htmx response headers, and partial rendering for returning HTML fragments without a layout wrapper.
 
 ## htmx middleware
 
@@ -16,12 +16,12 @@ The htmx middleware auto-detects htmx requests and sets template assigns that yo
 Add the htmx middleware to your router:
 
 ```zig
-const zzz = @import("zzz");
+const pidgn = @import("pidgn");
 
-const App = zzz.Router.define(.{
-    .middleware = &.{zzz.htmx(.{})},
+const App = pidgn.Router.define(.{
+    .middleware = &.{pidgn.htmx(.{})},
     .routes = &.{
-        zzz.Router.get("/", index),
+        pidgn.Router.get("/", index),
     },
 });
 ```
@@ -37,7 +37,7 @@ The `htmx` middleware accepts a `HtmxConfig` struct:
 
 ```zig
 // Use a specific htmx version
-zzz.htmx(.{ .htmx_cdn_version = "1.9.0" })
+pidgn.htmx(.{ .htmx_cdn_version = "1.9.0" })
 ```
 
 ### Assigns set by the middleware
@@ -54,7 +54,7 @@ When `set_assigns` is `true` (the default), the middleware sets these assigns on
 You can access these assigns in your handlers:
 
 ```zig
-fn handler(ctx: *zzz.Context) !void {
+fn handler(ctx: *pidgn.Context) !void {
     const is_htmx = ctx.getAssign("is_htmx") orelse "false";
     if (std.mem.eql(u8, is_htmx, "true")) {
         // htmx request -- return a fragment
@@ -69,7 +69,7 @@ fn handler(ctx: *zzz.Context) !void {
 The `Context` object provides a convenience method to check if the current request was made by htmx:
 
 ```zig
-fn handler(ctx: *zzz.Context) !void {
+fn handler(ctx: *pidgn.Context) !void {
     if (ctx.isHtmx()) {
         // Return a partial HTML fragment
         try ctx.renderPartial(CounterPartial, .ok, .{ .count = "5" });
@@ -86,7 +86,7 @@ fn handler(ctx: *zzz.Context) !void {
 
 ## htmx response headers
 
-zzz provides helper methods on `Context` for setting htmx response headers:
+pidgn provides helper methods on `Context` for setting htmx response headers:
 
 | Method | Header set | Purpose |
 | --- | --- | --- |
@@ -102,7 +102,7 @@ zzz provides helper methods on `Context` for setting htmx response headers:
 ### Example: triggering events
 
 ```zig
-fn increment(ctx: *zzz.Context) !void {
+fn increment(ctx: *pidgn.Context) !void {
     const raw = ctx.param("count") orelse "0";
     const current = std.fmt.parseInt(u32, raw, 10) catch 0;
     var buf: [16]u8 = undefined;
@@ -118,11 +118,11 @@ fn increment(ctx: *zzz.Context) !void {
 Use `ctx.renderPartial` to render a template without wrapping it in a layout. This is the standard approach for htmx fragment responses:
 
 ```zig
-const CounterPartial = zzz.template(
-    @embedFile("../templates/partials/counter.html.zzz"),
+const CounterPartial = pidgn.template(
+    @embedFile("../templates/partials/counter.html.pidgn"),
 );
 
-fn increment(ctx: *zzz.Context) !void {
+fn increment(ctx: *pidgn.Context) !void {
     try ctx.renderPartial(CounterPartial, .ok, .{
         .count = "42",
     });
@@ -132,12 +132,12 @@ fn increment(ctx: *zzz.Context) !void {
 For templates that include partials, use `templateWithPartials`:
 
 ```zig
-const TodoListPartial = zzz.templateWithPartials(
-    @embedFile("../templates/partials/todo_list.html.zzz"),
-    .{ .todo_item = @embedFile("../templates/partials/todo_item.html.zzz") },
+const TodoListPartial = pidgn.templateWithPartials(
+    @embedFile("../templates/partials/todo_list.html.pidgn"),
+    .{ .todo_item = @embedFile("../templates/partials/todo_item.html.pidgn") },
 );
 
-fn addTodo(ctx: *zzz.Context) !void {
+fn addTodo(ctx: *pidgn.Context) !void {
     // ... add the todo ...
     try ctx.renderPartial(TodoListPartial, .ok, .{
         .has_items = true,
@@ -150,7 +150,7 @@ fn addTodo(ctx: *zzz.Context) !void {
 
 The htmx middleware generates a CDN script tag assign. Use it in your layout via a named yield to include htmx only on pages that need it:
 
-**Layout** (`layout.html.zzz`):
+**Layout** (`layout.html.pidgn`):
 ```html
 <head>
   <title>{{title}}</title>
@@ -160,7 +160,7 @@ The htmx middleware generates a CDN script tag assign. Use it in your layout via
 
 **Handler:**
 ```zig
-fn htmxPage(ctx: *zzz.Context) !void {
+fn htmxPage(ctx: *pidgn.Context) !void {
     try ctx.renderWithLayoutAndYields(AppLayout, PageContent, .ok, .{
         .title = "Interactive Page",
     }, .{
@@ -180,7 +180,7 @@ The `htmxScriptTag()` method returns a string like:
 
 A counter that increments on each button click, replacing the counter fragment in place.
 
-**Template** (`partials/counter.html.zzz`):
+**Template** (`partials/counter.html.pidgn`):
 ```html
 <p>Count: {{count}}</p>
 <input type="hidden" name="count" value="{{count}}">
@@ -192,7 +192,7 @@ A counter that increments on each button click, replacing the counter fragment i
 </button>
 ```
 
-**Page template** (`htmx_demo.html.zzz`):
+**Page template** (`htmx_demo.html.pidgn`):
 ```html
 <h1>{{title}}</h1>
 <div id="counter" hx-headers='{"X-CSRF-Token": "{{csrf_token}}"}'>
@@ -202,20 +202,20 @@ A counter that increments on each button click, replacing the counter fragment i
 
 **Controller:**
 ```zig
-const zzz = @import("zzz");
+const pidgn = @import("pidgn");
 const home = @import("home.zig");
 
 const AppLayout = home.AppLayout;
 
-const HtmxDemoContent = zzz.templateWithPartials(
-    @embedFile("../templates/htmx_demo.html.zzz"),
-    .{ .counter = @embedFile("../templates/partials/counter.html.zzz") },
+const HtmxDemoContent = pidgn.templateWithPartials(
+    @embedFile("../templates/htmx_demo.html.pidgn"),
+    .{ .counter = @embedFile("../templates/partials/counter.html.pidgn") },
 );
-const CounterPartial = zzz.template(
-    @embedFile("../templates/partials/counter.html.zzz"),
+const CounterPartial = pidgn.template(
+    @embedFile("../templates/partials/counter.html.pidgn"),
 );
 
-fn htmxDemo(ctx: *zzz.Context) !void {
+fn htmxDemo(ctx: *pidgn.Context) !void {
     const csrf_token = ctx.getAssign("csrf_token") orelse "";
     try ctx.renderWithLayoutAndYields(AppLayout, HtmxDemoContent, .ok, .{
         .title = "htmx Demo",
@@ -226,7 +226,7 @@ fn htmxDemo(ctx: *zzz.Context) !void {
     });
 }
 
-fn htmxIncrement(ctx: *zzz.Context) !void {
+fn htmxIncrement(ctx: *pidgn.Context) !void {
     const raw = ctx.param("count") orelse "0";
     const current = std.fmt.parseInt(u32, raw, 10) catch 0;
     var buf: [16]u8 = undefined;
@@ -252,9 +252,9 @@ Use `hx-trigger` with a debounce to send a request as the user types:
 The handler reads the query parameter and returns a fragment:
 
 ```zig
-fn htmxGreeting(ctx: *zzz.Context) !void {
+fn htmxGreeting(ctx: *pidgn.Context) !void {
     const raw_name = ctx.param("name") orelse "stranger";
-    const name = zzz.urlDecode(ctx.allocator, raw_name) catch raw_name;
+    const name = pidgn.urlDecode(ctx.allocator, raw_name) catch raw_name;
     var buf: [256]u8 = undefined;
     const body = std.fmt.bufPrint(&buf, "<p>Hello, <strong>{s}</strong>!</p>", .{name}) catch "<p>Hello!</p>";
     ctx.html(.ok, body);
@@ -265,7 +265,7 @@ fn htmxGreeting(ctx: *zzz.Context) !void {
 
 A todo list with add and delete operations that update in place.
 
-**Page template** (`htmx_todos.html.zzz`):
+**Page template** (`htmx_todos.html.pidgn`):
 ```html
 <h1>{{title}}</h1>
 <div hx-headers='{"X-CSRF-Token": "{{csrf_token}}"}'>
@@ -282,7 +282,7 @@ A todo list with add and delete operations that update in place.
 </div>
 ```
 
-**Item partial** (`partials/todo_item.html.zzz`):
+**Item partial** (`partials/todo_item.html.pidgn`):
 ```html
 <li id="todo-{{id}}">
   <span>{{text}}</span>
@@ -292,7 +292,7 @@ A todo list with add and delete operations that update in place.
 </li>
 ```
 
-**List partial** (`partials/todo_list.html.zzz`):
+**List partial** (`partials/todo_list.html.pidgn`):
 ```html
 {{#if has_items}}<ul>
   {{#each items}}{{> todo_item}}{{/each}}
@@ -302,7 +302,7 @@ A todo list with add and delete operations that update in place.
 Both the add and delete handlers return the updated list fragment using `renderPartial`:
 
 ```zig
-fn htmxTodoAdd(ctx: *zzz.Context) !void {
+fn htmxTodoAdd(ctx: *pidgn.Context) !void {
     // ... add the item to storage ...
     const items = getItems();
     try ctx.renderPartial(TodoListPartial, .ok, .{
@@ -311,7 +311,7 @@ fn htmxTodoAdd(ctx: *zzz.Context) !void {
     });
 }
 
-fn htmxTodoDelete(ctx: *zzz.Context) !void {
+fn htmxTodoDelete(ctx: *pidgn.Context) !void {
     // ... remove the item from storage ...
     const items = getItems();
     try ctx.renderPartial(TodoListPartial, .ok, .{
@@ -326,7 +326,7 @@ fn htmxTodoDelete(ctx: *zzz.Context) !void {
 A common pattern is to serve the full page on initial load and only the fragment on htmx requests:
 
 ```zig
-fn dashboard(ctx: *zzz.Context) !void {
+fn dashboard(ctx: *pidgn.Context) !void {
     if (ctx.isHtmx()) {
         try ctx.renderPartial(DashboardContent, .ok, .{
             .stats = stats,
@@ -345,13 +345,13 @@ fn dashboard(ctx: *zzz.Context) !void {
 Register both the page routes and the htmx action routes together using a controller:
 
 ```zig
-pub const ctrl = zzz.Controller.define(.{}, &.{
-    zzz.Router.get("/htmx", htmxDemo),
-    zzz.Router.post("/htmx/increment", htmxIncrement),
-    zzz.Router.get("/htmx/greeting", htmxGreeting),
-    zzz.Router.get("/todos", htmxTodos),
-    zzz.Router.post("/todos", htmxTodoAdd),
-    zzz.Router.delete("/todos/:id", htmxTodoDelete),
+pub const ctrl = pidgn.Controller.define(.{}, &.{
+    pidgn.Router.get("/htmx", htmxDemo),
+    pidgn.Router.post("/htmx/increment", htmxIncrement),
+    pidgn.Router.get("/htmx/greeting", htmxGreeting),
+    pidgn.Router.get("/todos", htmxTodos),
+    pidgn.Router.post("/todos", htmxTodoAdd),
+    pidgn.Router.delete("/todos/:id", htmxTodoDelete),
 });
 ```
 

@@ -1,6 +1,6 @@
 ---
 title: "Layouts & Partials"
-description: "Define reusable page layouts with yield blocks and compose templates with partial includes in the zzz template engine."
+description: "Define reusable page layouts with yield blocks and compose templates with partial includes in the pidgn template engine."
 ---
 
 import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
@@ -16,7 +16,7 @@ A layout is a regular template that contains one or more `{{{yield}}}` placehold
 Create a layout template with `{{{yield}}}` where page content should appear:
 
 ```html
-<!-- src/templates/layout.html.zzz -->
+<!-- src/templates/layout.html.pidgn -->
 <!DOCTYPE html>
 <html>
 <head>
@@ -38,12 +38,12 @@ Create a layout template with `{{{yield}}}` where page content should appear:
 Compile the layout with its partials using `templateWithPartials`:
 
 ```zig
-const zzz = @import("zzz");
+const pidgn = @import("pidgn");
 
-pub const AppLayout = zzz.templateWithPartials(
-    @embedFile("../templates/layout.html.zzz"),
+pub const AppLayout = pidgn.templateWithPartials(
+    @embedFile("../templates/layout.html.pidgn"),
     .{
-        .nav = @embedFile("../templates/partials/nav.html.zzz"),
+        .nav = @embedFile("../templates/partials/nav.html.pidgn"),
     },
 );
 ```
@@ -53,9 +53,9 @@ pub const AppLayout = zzz.templateWithPartials(
 Use `ctx.renderWithLayout` to render a content template wrapped in the layout. Both templates receive the same data struct:
 
 ```zig
-const AboutContent = zzz.template(@embedFile("../templates/about.html.zzz"));
+const AboutContent = pidgn.template(@embedFile("../templates/about.html.pidgn"));
 
-fn about(ctx: *zzz.Context) !void {
+fn about(ctx: *pidgn.Context) !void {
     try ctx.renderWithLayout(AppLayout, AboutContent, .ok, .{
         .title = "About",
     });
@@ -97,7 +97,7 @@ This layout defines three yield slots:
 Use `ctx.renderWithLayoutAndYields` and pass a struct with fields matching the slot names:
 
 ```zig
-fn htmxDemo(ctx: *zzz.Context) !void {
+fn htmxDemo(ctx: *pidgn.Context) !void {
     try ctx.renderWithLayoutAndYields(AppLayout, HtmxDemoContent, .ok, .{
         .title = "htmx Demo",
         .description = "Interactive demos powered by htmx.",
@@ -113,7 +113,7 @@ If a named yield slot exists in the layout but no matching field is provided in 
 
 ### Standalone named yields API
 
-When using `zzz_template` outside of a web framework, the template type provides these render methods:
+When using `pidgn_template` outside of a web framework, the template type provides these render methods:
 
 ```zig
 const Layout = tmpl.template("<head>{{{yield_head}}}</head><body>{{{yield}}}</body>");
@@ -149,7 +149,7 @@ Partials are reusable template fragments that are inlined at compile time using 
 Create a partial as a regular template file in your partials directory:
 
 ```html
-<!-- src/templates/partials/nav.html.zzz -->
+<!-- src/templates/partials/nav.html.pidgn -->
 <nav>
   <a href="/">Home</a>
   <a href="/about">About</a>
@@ -161,11 +161,11 @@ Create a partial as a regular template file in your partials directory:
 Use `{{> name}}` to include the partial, and compile with `templateWithPartials`:
 
 ```zig
-const Page = zzz.templateWithPartials(
-    @embedFile("../templates/page.html.zzz"),
+const Page = pidgn.templateWithPartials(
+    @embedFile("../templates/page.html.pidgn"),
     .{
-        .header = @embedFile("../templates/partials/header.html.zzz"),
-        .footer = @embedFile("../templates/partials/footer.html.zzz"),
+        .header = @embedFile("../templates/partials/header.html.pidgn"),
+        .footer = @embedFile("../templates/partials/footer.html.pidgn"),
     },
 );
 ```
@@ -191,7 +191,7 @@ You can pass literal arguments to partials using `key="value"` syntax:
 The partial template uses `{{key}}` placeholders that get substituted with the argument values:
 
 ```html
-<!-- src/templates/partials/button.html.zzz -->
+<!-- src/templates/partials/button.html.pidgn -->
 <button class="btn-{{type}}">{{label}}</button>
 ```
 
@@ -203,7 +203,7 @@ The partial template uses `{{key}}` placeholders that get substituted with the a
 Argument substitution happens before template parsing, so the substituted values become literal text in the final template. Any `{{key}}` placeholders in the partial that do not match an argument name remain as template variables and are resolved from the data struct at render time.
 
 ```zig
-const Page = zzz.templateWithPartials(
+const Page = pidgn.templateWithPartials(
     "{{> greeting name=\"World\"}}",
     .{ .greeting = "<p>Hello, {{name}}! Today is {{day}}.</p>" },
 );
@@ -219,14 +219,14 @@ const result = try Page.render(allocator, .{ .day = "Monday" });
 Partials work inside `{{#each}}` blocks. The partial has access to the loop element's fields:
 
 ```html
-<!-- src/templates/todos.html.zzz -->
+<!-- src/templates/todos.html.pidgn -->
 <ul>
   {{#each items}}{{> todo_item}}{{/each}}
 </ul>
 ```
 
 ```html
-<!-- src/templates/partials/todo_item.html.zzz -->
+<!-- src/templates/partials/todo_item.html.pidgn -->
 <li id="todo-{{id}}">
   <span>{{text}}</span>
   <button hx-delete="/todos/{{id}}">Delete</button>
@@ -234,9 +234,9 @@ Partials work inside `{{#each}}` blocks. The partial has access to the loop elem
 ```
 
 ```zig
-const TodosTemplate = zzz.templateWithPartials(
-    @embedFile("../templates/todos.html.zzz"),
-    .{ .todo_item = @embedFile("../templates/partials/todo_item.html.zzz") },
+const TodosTemplate = pidgn.templateWithPartials(
+    @embedFile("../templates/todos.html.pidgn"),
+    .{ .todo_item = @embedFile("../templates/partials/todo_item.html.pidgn") },
 );
 ```
 
@@ -245,11 +245,11 @@ const TodosTemplate = zzz.templateWithPartials(
 If a partial itself contains `{{> name}}` tags, those inner partials must also be provided in the partials struct. Since partial inlining happens in a single pass, the parent template must supply all transitive partial dependencies.
 
 ```zig
-const Page = zzz.templateWithPartials(
-    @embedFile("../templates/page.html.zzz"),       // contains {{> sidebar}}
+const Page = pidgn.templateWithPartials(
+    @embedFile("../templates/page.html.pidgn"),       // contains {{> sidebar}}
     .{
-        .sidebar = @embedFile("../templates/partials/sidebar.html.zzz"), // may contain {{> user_card}}
-        .user_card = @embedFile("../templates/partials/user_card.html.zzz"),
+        .sidebar = @embedFile("../templates/partials/sidebar.html.pidgn"), // may contain {{> user_card}}
+        .user_card = @embedFile("../templates/partials/user_card.html.pidgn"),
     },
 );
 ```
@@ -262,13 +262,13 @@ src/
     home.zig          # Compiles templates and defines handlers
     htmx.zig
   templates/
-    layout.html.zzz   # Application layout with {{{yield}}}
-    index.html.zzz    # Page content templates
-    about.html.zzz
+    layout.html.pidgn   # Application layout with {{{yield}}}
+    index.html.pidgn    # Page content templates
+    about.html.pidgn
     partials/
-      nav.html.zzz    # Shared navigation
-      footer.html.zzz
-      counter.html.zzz
+      nav.html.pidgn    # Shared navigation
+      footer.html.pidgn
+      counter.html.pidgn
 ```
 
 A typical controller file follows this pattern:
@@ -278,17 +278,17 @@ A typical controller file follows this pattern:
 1. **Compile layout and content templates** as module-level constants:
 
    ```zig
-   const zzz = @import("zzz");
+   const pidgn = @import("pidgn");
    const home = @import("home.zig");
    const AppLayout = home.AppLayout;
 
-   const PageContent = zzz.template(@embedFile("../templates/page.html.zzz"));
+   const PageContent = pidgn.template(@embedFile("../templates/page.html.pidgn"));
    ```
 
 2. **Define a handler** that renders the content inside the layout:
 
    ```zig
-   fn page(ctx: *zzz.Context) !void {
+   fn page(ctx: *pidgn.Context) !void {
        try ctx.renderWithLayout(AppLayout, PageContent, .ok, .{
            .title = "My Page",
        });
@@ -299,9 +299,9 @@ A typical controller file follows this pattern:
 
    ```zig
    // home.zig
-   pub const AppLayout = zzz.templateWithPartials(
-       @embedFile("../templates/layout.html.zzz"),
-       .{ .nav = @embedFile("../templates/partials/nav.html.zzz") },
+   pub const AppLayout = pidgn.templateWithPartials(
+       @embedFile("../templates/layout.html.pidgn"),
+       .{ .nav = @embedFile("../templates/partials/nav.html.pidgn") },
    );
    ```
 

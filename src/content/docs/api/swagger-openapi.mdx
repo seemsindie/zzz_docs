@@ -5,14 +5,14 @@ description: "Generate OpenAPI 3.1.0 specs from route annotations, configure sec
 
 import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
 
-zzz generates a complete OpenAPI 3.1.0 specification at compile time from your annotated route definitions. This page covers route annotation, spec configuration, security schemes, and serving the Swagger UI.
+pidgn generates a complete OpenAPI 3.1.0 specification at compile time from your annotated route definitions. This page covers route annotation, spec configuration, security schemes, and serving the Swagger UI.
 
 ## Annotating routes
 
 Call `.doc()` on any route definition to include it in the generated spec. Routes without `.doc()` are excluded entirely.
 
 ```zig
-zzz.Router.get("/api/users", listUsers)
+pidgn.Router.get("/api/users", listUsers)
     .doc(.{
         .summary = "List all users",
         .description = "Returns a paginated list of users.",
@@ -40,7 +40,7 @@ The `.doc()` method accepts an `ApiDoc` struct with the following fields:
 Use the `query_params` field to document expected query string parameters:
 
 ```zig
-zzz.Router.get("/api/users", listUsers)
+pidgn.Router.get("/api/users", listUsers)
     .doc(.{
         .summary = "List users",
         .tag = "Users",
@@ -70,7 +70,7 @@ Path parameters are detected automatically from the route pattern. A route patte
 If you chain `.named()` on a route, the name becomes the `operationId` in the OpenAPI spec:
 
 ```zig
-zzz.Router.get("/api/users/:id", getUser)
+pidgn.Router.get("/api/users/:id", getUser)
     .named("get_user")
     .doc(.{ .summary = "Get user by ID", .tag = "Users" }),
 ```
@@ -79,13 +79,13 @@ This produces `"operationId": "get_user"` in the spec, which client code generat
 
 ## Spec generation
 
-Call `zzz.swagger.generateSpec` with a `SpecConfig` and your route table to produce the OpenAPI JSON string at compile time.
+Call `pidgn.swagger.generateSpec` with a `SpecConfig` and your route table to produce the OpenAPI JSON string at compile time.
 
 ```zig
-const api_spec = zzz.swagger.generateSpec(.{
+const api_spec = pidgn.swagger.generateSpec(.{
     .title = "Example App API",
     .version = "0.1.0",
-    .description = "Demo API built with zzz",
+    .description = "Demo API built with pidgn",
     .server_url = "https://api.example.com",
 }, routes);
 ```
@@ -121,7 +121,7 @@ To document authentication requirements, define security schemes in your `SpecCo
 1. **Define schemes** in the spec configuration:
 
    ```zig
-   const api_spec = zzz.swagger.generateSpec(.{
+   const api_spec = pidgn.swagger.generateSpec(.{
        .title = "Secure API",
        .security_schemes = &.{
            .{
@@ -145,7 +145,7 @@ To document authentication requirements, define security schemes in your `SpecCo
 2. **Reference schemes** on protected routes:
 
    ```zig
-   zzz.Router.get("/api/me", currentUser)
+   pidgn.Router.get("/api/me", currentUser)
        .doc(.{
            .summary = "Current user",
            .security = &.{"bearerAuth"},
@@ -206,14 +206,14 @@ To document authentication requirements, define security schemes in your `SpecCo
 
 ## Serving the Swagger UI
 
-The `zzz.swagger.ui` middleware serves an interactive Swagger UI page and the raw OpenAPI JSON spec.
+The `pidgn.swagger.ui` middleware serves an interactive Swagger UI page and the raw OpenAPI JSON spec.
 
 ```zig
-const App = zzz.Router.define(.{
+const App = pidgn.Router.define(.{
     .middleware = &.{
-        zzz.errorHandler(.{ .show_details = true }),
-        zzz.logger,
-        zzz.swagger.ui(.{ .spec_json = api_spec }),
+        pidgn.errorHandler(.{ .show_details = true }),
+        pidgn.logger,
+        pidgn.swagger.ui(.{ .spec_json = api_spec }),
     },
     .routes = routes,
 });
@@ -239,7 +239,7 @@ All other requests pass through to the next middleware in the chain.
 To serve the docs at a different URL:
 
 ```zig
-zzz.swagger.ui(.{
+pidgn.swagger.ui(.{
     .spec_json = api_spec,
     .path = "/docs",
 })
@@ -253,7 +253,7 @@ Here is a full example showing route annotations, spec generation, security, and
 
 ```zig
 const std = @import("std");
-const zzz = @import("zzz");
+const pidgn = @import("pidgn");
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -270,22 +270,22 @@ const CreateUserRequest = struct {
 
 // ── Handlers ───────────────────────────────────────────────────────────
 
-fn listUsers(ctx: *zzz.Context) !void {
+fn listUsers(ctx: *pidgn.Context) !void {
     ctx.json(.ok, .{ .users = &[_]User{} });
 }
 
-fn createUser(ctx: *zzz.Context) !void {
+fn createUser(ctx: *pidgn.Context) !void {
     ctx.json(.created, .{ .id = 1, .name = "alice" });
 }
 
-fn currentUser(ctx: *zzz.Context) !void {
+fn currentUser(ctx: *pidgn.Context) !void {
     ctx.json(.ok, .{ .id = 1, .name = "me" });
 }
 
 // ── Routes ─────────────────────────────────────────────────────────────
 
 const routes = &.{
-    zzz.Router.get("/api/users", listUsers)
+    pidgn.Router.get("/api/users", listUsers)
         .doc(.{
             .summary = "List all users",
             .tag = "Users",
@@ -294,7 +294,7 @@ const routes = &.{
                 .{ .name = "page", .schema_type = "integer" },
             },
         }),
-    zzz.Router.post("/api/users", createUser)
+    pidgn.Router.post("/api/users", createUser)
         .doc(.{
             .summary = "Create a user",
             .tag = "Users",
@@ -302,7 +302,7 @@ const routes = &.{
             .response_body = User,
             .security = &.{"bearerAuth"},
         }),
-    zzz.Router.get("/api/me", currentUser)
+    pidgn.Router.get("/api/me", currentUser)
         .doc(.{
             .summary = "Current user",
             .tag = "Auth",
@@ -313,7 +313,7 @@ const routes = &.{
 
 // ── Spec ───────────────────────────────────────────────────────────────
 
-const api_spec = zzz.swagger.generateSpec(.{
+const api_spec = pidgn.swagger.generateSpec(.{
     .title = "User Service",
     .version = "1.0.0",
     .description = "User management API with JWT authentication",
@@ -329,10 +329,10 @@ const api_spec = zzz.swagger.generateSpec(.{
 
 // ── App ────────────────────────────────────────────────────────────────
 
-const App = zzz.Router.define(.{
+const App = pidgn.Router.define(.{
     .middleware = &.{
-        zzz.logger,
-        zzz.swagger.ui(.{ .spec_json = api_spec }),
+        pidgn.logger,
+        pidgn.swagger.ui(.{ .spec_json = api_spec }),
     },
     .routes = routes,
 });

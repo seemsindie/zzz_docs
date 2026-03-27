@@ -1,11 +1,11 @@
 ---
 title: "Job Telemetry"
-description: "Monitor zzz_jobs with event-driven telemetry hooks for job lifecycle events including enqueue, start, completion, failure, and discard."
+description: "Monitor pidgn_jobs with event-driven telemetry hooks for job lifecycle events including enqueue, start, completion, failure, and discard."
 ---
 
 import { Steps } from '@astrojs/starlight/components';
 
-zzz_jobs provides an event-driven telemetry system that lets you observe job lifecycle events in real time. Use it to log activity, collect metrics, send alerts, or build dashboards.
+pidgn_jobs provides an event-driven telemetry system that lets you observe job lifecycle events in real time. Use it to log activity, collect metrics, send alerts, or build dashboards.
 
 ## Architecture
 
@@ -68,9 +68,9 @@ pub const JobResult = struct {
 1. **Create a Telemetry instance**
 
     ```zig
-    const zzz_jobs = @import("zzz_jobs");
+    const pidgn_jobs = @import("pidgn_jobs");
 
-    var telemetry = zzz_jobs.Telemetry{};
+    var telemetry = pidgn_jobs.Telemetry{};
     ```
 
 2. **Define a handler function**
@@ -79,7 +79,7 @@ pub const JobResult = struct {
     const std = @import("std");
     const log = std.log.scoped(.jobs);
 
-    fn telemetryHandler(event: zzz_jobs.Event) void {
+    fn telemetryHandler(event: pidgn_jobs.Event) void {
         switch (event) {
             .job_enqueued => |job| {
                 log.info("Enqueued: {s}({s})", .{ job.worker, job.args });
@@ -130,7 +130,7 @@ The handler is called synchronously on the thread that triggered the event. Keep
 You can attach up to 8 handlers. All attached handlers are called for every event, in the order they were attached:
 
 ```zig
-var telemetry = zzz_jobs.Telemetry{};
+var telemetry = pidgn_jobs.Telemetry{};
 telemetry.attach(&loggingHandler);
 telemetry.attach(&metricsHandler);
 telemetry.attach(&alertingHandler);
@@ -143,7 +143,7 @@ A practical example that maintains in-memory counters:
 
 ```zig
 const std = @import("std");
-const zzz_jobs = @import("zzz_jobs");
+const pidgn_jobs = @import("pidgn_jobs");
 
 var stats = struct {
     enqueued: usize = 0,
@@ -153,7 +153,7 @@ var stats = struct {
     total_duration_ms: i64 = 0,
 }{};
 
-fn statsHandler(event: zzz_jobs.Event) void {
+fn statsHandler(event: pidgn_jobs.Event) void {
     switch (event) {
         .job_enqueued => stats.enqueued += 1,
         .job_completed => |r| {
@@ -167,12 +167,12 @@ fn statsHandler(event: zzz_jobs.Event) void {
 }
 ```
 
-## Example: real-world usage from zzz_example_app
+## Example: real-world usage from pidgn_example_app
 
 The example application uses telemetry to build a live activity log:
 
 ```zig
-fn jobsTelemetryHandler(event: zzz_jobs.Event) void {
+fn jobsTelemetryHandler(event: pidgn_jobs.Event) void {
     switch (event) {
         .job_enqueued => |j| {
             var buf: [128]u8 = undefined;
@@ -208,7 +208,7 @@ fn jobsTelemetryHandler(event: zzz_jobs.Event) void {
     }
 }
 
-var telemetry = zzz_jobs.Telemetry{};
+var telemetry = pidgn_jobs.Telemetry{};
 telemetry.attach(&jobsTelemetryHandler);
 supervisor.telemetry = &telemetry;
 ```

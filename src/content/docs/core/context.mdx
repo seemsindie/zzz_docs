@@ -10,7 +10,7 @@ The `Context` struct flows through the entire middleware and handler chain. It p
 Every route handler and middleware has the same signature:
 
 ```zig
-fn handler(ctx: *zzz.Context) !void {
+fn handler(ctx: *pidgn.Context) !void {
     // ...
 }
 ```
@@ -23,7 +23,7 @@ Path parameters defined with `:name` in the route pattern are available through 
 
 ```zig
 // Route: Router.get("/users/:id", getUser)
-fn getUser(ctx: *zzz.Context) !void {
+fn getUser(ctx: *pidgn.Context) !void {
     const id = ctx.pathParam("id") orelse "unknown";
     ctx.text(.ok, id);
 }
@@ -35,7 +35,7 @@ Query string values are parsed automatically:
 
 ```zig
 // GET /search?q=zig&page=2
-fn search(ctx: *zzz.Context) !void {
+fn search(ctx: *pidgn.Context) !void {
     const query = ctx.query.get("q") orelse "";
     const page = ctx.query.get("page") orelse "1";
     _ = query;
@@ -162,7 +162,7 @@ Path traversal (`..`) is rejected automatically with a 403 response. Files are c
 
 ### Status codes
 
-zzz uses a `StatusCode` enum. Common values:
+pidgn uses a `StatusCode` enum. Common values:
 
 | Enum value | HTTP code |
 |-----------|-----------|
@@ -221,7 +221,7 @@ Assigns are commonly used by middleware to pass extracted data (auth tokens, ses
 
 ## Rendering templates
 
-zzz includes a compile-time template engine. The Context provides several render methods:
+pidgn includes a compile-time template engine. The Context provides several render methods:
 
 ```zig
 // Render a template as HTML
@@ -272,7 +272,7 @@ const script = ctx.htmxScriptTag();
 In middleware, call `ctx.next()` to continue the pipeline:
 
 ```zig
-fn myMiddleware(ctx: *zzz.Context) !void {
+fn myMiddleware(ctx: *pidgn.Context) !void {
     // pre-processing
     try ctx.next();
     // post-processing (response is ready)

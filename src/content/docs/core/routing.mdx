@@ -5,18 +5,18 @@ description: "Define routes with compile-time resolution, path params, wildcards
 
 import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
 
-zzz resolves all routes at compile time. Patterns are parsed into segments, matched against incoming requests with zero allocations, and any misconfigurations produce clear compile errors rather than runtime surprises.
+pidgn resolves all routes at compile time. Patterns are parsed into segments, matched against incoming requests with zero allocations, and any misconfigurations produce clear compile errors rather than runtime surprises.
 
 ## Defining routes
 
 Use `Router.define` to create your application. It accepts a config struct with global `middleware` and a `routes` slice:
 
 ```zig
-const App = zzz.Router.define(.{
-    .middleware = &.{zzz.logger},
+const App = pidgn.Router.define(.{
+    .middleware = &.{pidgn.logger},
     .routes = &.{
-        zzz.Router.get("/", index),
-        zzz.Router.post("/users", createUser),
+        pidgn.Router.get("/", index),
+        pidgn.Router.post("/users", createUser),
     },
 });
 ```
@@ -40,7 +40,7 @@ The `Router` namespace provides a helper for each standard HTTP method:
 For less common methods, use `Router.route`:
 
 ```zig
-zzz.Router.route(.CONNECT, "/tunnel", tunnelHandler),
+pidgn.Router.route(.CONNECT, "/tunnel", tunnelHandler),
 ```
 
 Every helper returns a `RouteDef` struct that you can chain with `.named()` or `.doc()`.
@@ -50,14 +50,14 @@ Every helper returns a `RouteDef` struct that you can chain with `.named()` or `
 Prefix a segment with `:` to capture it as a named parameter. Up to 8 path parameters are supported per route (zero-allocation fixed-size store).
 
 ```zig
-zzz.Router.get("/users/:id", getUser),
-zzz.Router.get("/posts/:slug/comments/:comment_id", getComment),
+pidgn.Router.get("/users/:id", getUser),
+pidgn.Router.get("/posts/:slug/comments/:comment_id", getComment),
 ```
 
 Inside your handler, retrieve the value with `ctx.param()` or `ctx.pathParam()`:
 
 ```zig
-fn getUser(ctx: *zzz.Context) !void {
+fn getUser(ctx: *pidgn.Context) !void {
     const id = ctx.param("id") orelse {
         ctx.text(.bad_request, "missing id");
         return;
@@ -72,7 +72,7 @@ fn getUser(ctx: *zzz.Context) !void {
 Prefix a segment with `*` to capture the entire remainder of the path. Wildcards must be the last segment.
 
 ```zig
-zzz.Router.get("/files/*path", serveFile),
+pidgn.Router.get("/files/*path", serveFile),
 ```
 
 A request to `/files/docs/guide.pdf` sets the `path` parameter to `docs/guide.pdf`.
@@ -82,7 +82,7 @@ A request to `/files/docs/guide.pdf` sets the `path` parameter to `docs/guide.pd
 Query strings are automatically parsed and accessible via `ctx.query.get()` or the unified `ctx.param()` lookup (which checks path params first, then body fields, then query params):
 
 ```zig
-fn listUsers(ctx: *zzz.Context) !void {
+fn listUsers(ctx: *pidgn.Context) !void {
     const page = ctx.param("page") orelse "1";
     const per_page = ctx.query.get("per_page") orelse "20";
     _ = page;
@@ -96,7 +96,7 @@ fn listUsers(ctx: *zzz.Context) !void {
 `Router.resource` generates standard CRUD routes from a single declaration:
 
 ```zig
-const routes = zzz.Router.resource("/posts", .{
+const routes = pidgn.Router.resource("/posts", .{
     .index = listPosts,        // GET    /posts
     .show = showPost,          // GET    /posts/:id
     .create = createPost,      // POST   /posts
@@ -110,18 +110,18 @@ const routes = zzz.Router.resource("/posts", .{
 All handlers are optional. Only the ones you provide generate routes. You can also attach shared middleware to all resource routes:
 
 ```zig
-zzz.Router.resource("/admin/posts", .{
+pidgn.Router.resource("/admin/posts", .{
     .index = listPosts,
     .create = createPost,
-    .middleware = &.{zzz.bearerAuth(.{ .required = true })},
+    .middleware = &.{pidgn.bearerAuth(.{ .required = true })},
 }),
 ```
 
 Since `Router.resource` returns a `[]const RouteDef`, you concatenate it with other routes using `++`:
 
 ```zig
-.routes = zzz.Router.resource("/posts", .{ .index = listPosts })
-    ++ &.{ zzz.Router.get("/", index) },
+.routes = pidgn.Router.resource("/posts", .{ .index = listPosts })
+    ++ &.{ pidgn.Router.get("/", index) },
 ```
 
 ## Scoped routes
@@ -129,11 +129,11 @@ Since `Router.resource` returns a `[]const RouteDef`, you concatenate it with ot
 `Router.scope` groups routes under a shared prefix and middleware:
 
 ```zig
-zzz.Router.scope("/api", &.{
-    zzz.bearerAuth(.{ .required = true }),
+pidgn.Router.scope("/api", &.{
+    pidgn.bearerAuth(.{ .required = true }),
 }, &.{
-    zzz.Router.get("/me", currentUser),
-    zzz.Router.get("/posts", listPosts),
+    pidgn.Router.get("/me", currentUser),
+    pidgn.Router.get("/posts", listPosts),
 }),
 ```
 
@@ -142,10 +142,10 @@ This produces `GET /api/me` and `GET /api/posts`, both protected by bearer auth.
 Scopes can be nested by concatenating multiple scope calls:
 
 ```zig
-.routes = zzz.Router.scope("/api/v1", &.{zzz.rateLimit(.{})}, &.{
-    zzz.Router.get("/status", apiStatus),
-}) ++ zzz.Router.scope("/api/v2", &.{}, &.{
-    zzz.Router.get("/status", apiStatusV2),
+.routes = pidgn.Router.scope("/api/v1", &.{pidgn.rateLimit(.{})}, &.{
+    pidgn.Router.get("/status", apiStatus),
+}) ++ pidgn.Router.scope("/api/v2", &.{}, &.{
+    pidgn.Router.get("/status", apiStatusV2),
 }),
 ```
 
@@ -154,7 +154,7 @@ Scopes can be nested by concatenating multiple scope calls:
 Give a route a name with `.named()` for reverse URL generation:
 
 ```zig
-zzz.Router.get("/users/:id", getUser).named("user_path"),
+pidgn.Router.get("/users/:id", getUser).named("user_path"),
 ```
 
 Then look up the pattern at compile time or build a URL with parameter substitution:
@@ -174,12 +174,12 @@ const url = App.buildPath("user_path", &buf, .{ .id = "42" });
 The `Controller` type groups related routes under a shared prefix, Swagger tag, and middleware. See [Controllers](/core/controllers/) for details.
 
 ```zig
-pub const ctrl = zzz.Controller.define(.{
+pub const ctrl = pidgn.Controller.define(.{
     .prefix = "/api",
     .tag = "API",
 }, &.{
-    zzz.Router.get("/status", apiStatus),
-    zzz.Router.get("/users/:id", getUser),
+    pidgn.Router.get("/status", apiStatus),
+    pidgn.Router.get("/users/:id", getUser),
 });
 ```
 

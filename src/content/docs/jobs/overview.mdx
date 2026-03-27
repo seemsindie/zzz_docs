@@ -1,11 +1,11 @@
 ---
 title: "Background Jobs Overview"
-description: "Introduction to zzz_jobs — background job processing for the zzz web framework with in-memory and database-backed queues, retry strategies, cron scheduling, and telemetry."
+description: "Introduction to pidgn_jobs — background job processing for the pidgn web framework with in-memory and database-backed queues, retry strategies, cron scheduling, and telemetry."
 ---
 
 import { Steps } from '@astrojs/starlight/components';
 
-zzz_jobs is a background job processing library for the zzz ecosystem. It lets you define work as discrete jobs, enqueue them from your request handlers, and process them asynchronously in worker threads. Jobs survive failures through configurable retry strategies, can be scheduled with cron expressions, and emit telemetry events for observability.
+pidgn_jobs is a background job processing library for the pidgn ecosystem. It lets you define work as discrete jobs, enqueue them from your request handlers, and process them asynchronously in worker threads. Jobs survive failures through configurable retry strategies, can be scheduled with cron expressions, and emit telemetry events for observability.
 
 ## Architecture
 
@@ -14,7 +14,7 @@ The library is built around four core concepts:
 | Concept | Description |
 |---|---|
 | **Supervisor** | Manages worker threads, polls the store for available jobs, and coordinates graceful shutdown. One supervisor per application. |
-| **Store** | Persists job state. `MemoryStore` keeps everything in-process (good for development and simple deployments). `DbStore` persists to SQLite or PostgreSQL via zzz_db. |
+| **Store** | Persists job state. `MemoryStore` keeps everything in-process (good for development and simple deployments). `DbStore` persists to SQLite or PostgreSQL via pidgn_db. |
 | **Worker** | A named handler function that processes a specific kind of job. Workers are registered with the supervisor before it starts. |
 | **Job** | A unit of work: a worker name, serialized arguments, priority, retry configuration, and lifecycle state. |
 
@@ -43,12 +43,12 @@ scheduled --> available (when scheduled_at time arrives)
 
 ## Adding the dependency
 
-Add `zzz_jobs` to your project's `build.zig.zon`:
+Add `pidgn_jobs` to your project's `build.zig.zon`:
 
 ```zig
 .dependencies = .{
-    .zzz_jobs = .{
-        .path = "../zzz_jobs",
+    .pidgn_jobs = .{
+        .path = "../pidgn_jobs",
     },
 },
 ```
@@ -56,17 +56,17 @@ Add `zzz_jobs` to your project's `build.zig.zon`:
 Then wire it into your `build.zig`:
 
 ```zig
-const zzz_jobs_dep = b.dependency("zzz_jobs", .{
+const pidgn_jobs_dep = b.dependency("pidgn_jobs", .{
     .target = target,
     .optimize = optimize,
 });
-exe.root_module.addImport("zzz_jobs", zzz_jobs_dep.module("zzz_jobs"));
+exe.root_module.addImport("pidgn_jobs", pidgn_jobs_dep.module("pidgn_jobs"));
 ```
 
 For database-backed stores, pass the appropriate build flag:
 
 ```zig
-const zzz_jobs_dep = b.dependency("zzz_jobs", .{
+const pidgn_jobs_dep = b.dependency("pidgn_jobs", .{
     .target = target,
     .optimize = optimize,
     .sqlite = true,     // Enable SQLite backend
@@ -80,12 +80,12 @@ const zzz_jobs_dep = b.dependency("zzz_jobs", .{
 
 1. **Define a worker function**
 
-    A worker is a function with the signature `fn ([]const u8, *zzz_jobs.JobContext) anyerror!void`. The first argument carries the serialized job payload; the second provides context about the current execution.
+    A worker is a function with the signature `fn ([]const u8, *pidgn_jobs.JobContext) anyerror!void`. The first argument carries the serialized job payload; the second provides context about the current execution.
 
     ```zig
-    const zzz_jobs = @import("zzz_jobs");
+    const pidgn_jobs = @import("pidgn_jobs");
 
-    fn sendEmailWorker(args: []const u8, ctx: *zzz_jobs.JobContext) anyerror!void {
+    fn sendEmailWorker(args: []const u8, ctx: *pidgn_jobs.JobContext) anyerror!void {
         // args contains the serialized job payload (e.g. JSON)
         _ = ctx;
         // ... send the email using args ...
@@ -95,7 +95,7 @@ const zzz_jobs_dep = b.dependency("zzz_jobs", .{
 2. **Create and configure a supervisor**
 
     ```zig
-    var supervisor = try zzz_jobs.MemorySupervisor.init(.{}, .{
+    var supervisor = try pidgn_jobs.MemorySupervisor.init(.{}, .{
         .queues = &.{.{ .name = "default", .concurrency = 10 }},
         .poll_interval_ms = 1000,
     });

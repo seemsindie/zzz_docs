@@ -5,13 +5,13 @@ description: "Isolate database tests with automatic transaction rollback, test f
 
 import { Steps } from '@astrojs/starlight/components';
 
-The `zzz_db.testing` module provides three utilities for database testing:
+The `pidgn_db.testing` module provides three utilities for database testing:
 
 - **TestSandbox** -- wraps a database connection in a transaction that rolls back on cleanup, so each test starts with a clean slate.
 - **Factory** -- creates test records with sensible defaults and optional field overrides.
 - **seed** -- bulk-inserts a list of records for test setup.
 
-All three work with any `zzz_db` backend (SQLite, PostgreSQL) through the same generic interface.
+All three work with any `pidgn_db` backend (SQLite, PostgreSQL) through the same generic interface.
 
 ## TestSandbox
 
@@ -24,9 +24,9 @@ All three work with any `zzz_db` backend (SQLite, PostgreSQL) through the same g
 1. **Open a database connection** as you normally would:
 
    ```zig
-   const zzz_db = @import("zzz_db");
-   const sqlite = zzz_db.sqlite;
-   const Connection = zzz_db.Connection;
+   const pidgn_db = @import("pidgn_db");
+   const sqlite = pidgn_db.sqlite;
+   const Connection = pidgn_db.Connection;
 
    var conn = try Connection(sqlite).open(.{});
    defer conn.close();
@@ -35,7 +35,7 @@ All three work with any `zzz_db` backend (SQLite, PostgreSQL) through the same g
 2. **Begin a sandbox** and defer `rollback()`:
 
    ```zig
-   var sandbox = try zzz_db.testing.TestSandbox(sqlite).begin(&conn);
+   var sandbox = try pidgn_db.testing.TestSandbox(sqlite).begin(&conn);
    defer sandbox.rollback();
    ```
 
@@ -47,7 +47,7 @@ All three work with any `zzz_db` backend (SQLite, PostgreSQL) through the same g
        defer conn.close();
 
        {
-           var sandbox = try zzz_db.testing.TestSandbox(sqlite).begin(&conn);
+           var sandbox = try pidgn_db.testing.TestSandbox(sqlite).begin(&conn);
            defer sandbox.rollback();
 
            try conn.exec("INSERT INTO users (name, email) VALUES ('alice', 'a@e.com')");
@@ -77,7 +77,7 @@ test "explicit commit persists" {
     defer conn.close();
 
     {
-        var sandbox = try zzz_db.testing.TestSandbox(sqlite).begin(&conn);
+        var sandbox = try pidgn_db.testing.TestSandbox(sqlite).begin(&conn);
         try conn.exec("INSERT INTO users (name, email) VALUES ('bob', 'b@e.com')");
         try sandbox.commit();
     }
@@ -90,7 +90,7 @@ Note that `commit()` makes the data permanent in the test database. Use this onl
 
 ### How it works
 
-`TestSandbox` is a thin wrapper around `zzz_db`'s transaction primitives:
+`TestSandbox` is a thin wrapper around `pidgn_db`'s transaction primitives:
 
 | Method | SQL equivalent | Effect |
 |---|---|---|
@@ -107,10 +107,10 @@ Since the sandbox operates at the connection level, all queries run through that
 ### Creating a single record
 
 ```zig
-const zzz_db = @import("zzz_db");
-const sqlite = zzz_db.sqlite;
-const Pool = zzz_db.Pool;
-const Repo = zzz_db.Repo;
+const pidgn_db = @import("pidgn_db");
+const sqlite = pidgn_db.sqlite;
+const Pool = pidgn_db.Pool;
+const Repo = pidgn_db.Repo;
 
 const User = struct {
     id: i64,
@@ -119,7 +119,7 @@ const User = struct {
     inserted_at: i64 = 0,
     updated_at: i64 = 0,
 
-    pub const Meta = zzz_db.schema.define(@This(), .{
+    pub const Meta = pidgn_db.schema.define(@This(), .{
         .table = "users",
         .primary_key = "id",
         .timestamps = true,
@@ -130,9 +130,9 @@ test "factory creates a user" {
     var pool = try Pool(sqlite).init(.{ .size = 1 });
     defer pool.deinit();
 
-    var factory = zzz_db.testing.Factory(sqlite, User).init(&pool);
+    var factory = pidgn_db.testing.Factory(sqlite, User).init(&pool);
     var user = try factory.create(.{ .name = "Alice", .email = "a@example.com" }, std.testing.allocator);
-    defer zzz_db.Repo.freeOne(User, &user, std.testing.allocator);
+    defer pidgn_db.Repo.freeOne(User, &user, std.testing.allocator);
 
     try std.testing.expect(user.id > 0);
     try std.testing.expectEqualStrings("Alice", user.name);
@@ -163,14 +163,14 @@ test "factory creates many" {
     var pool = try Pool(sqlite).init(.{ .size = 1 });
     defer pool.deinit();
 
-    var factory = zzz_db.testing.Factory(sqlite, User).init(&pool);
+    var factory = pidgn_db.testing.Factory(sqlite, User).init(&pool);
     const users = try factory.createMany(3, .{
         .name = "TestUser",
         .email = "test@example.com",
     }, std.testing.allocator);
     defer {
         for (users) |*u| {
-            zzz_db.Repo.freeOne(User, u, std.testing.allocator);
+            pidgn_db.Repo.freeOne(User, u, std.testing.allocator);
         }
         std.testing.allocator.free(users);
     }
@@ -194,13 +194,13 @@ test "seed inserts records" {
     var pool = try Pool(sqlite).init(.{ .size = 1 });
     defer pool.deinit();
 
-    var repo = zzz_db.Repo(sqlite).init(&pool);
-    try zzz_db.testing.seed(sqlite, User, &repo, &.{
+    var repo = pidgn_db.Repo(sqlite).init(&pool);
+    try pidgn_db.testing.seed(sqlite, User, &repo, &.{
         .{ .id = 0, .name = "Alice", .email = "alice@example.com" },
         .{ .id = 0, .name = "Bob", .email = "bob@example.com" },
     }, std.testing.allocator);
 
-    const q = zzz_db.Query(User).init();
+    const q = pidgn_db.Query(User).init();
     const count = try repo.count(User, q, std.testing.allocator);
     try std.testing.expectEqual(@as(i64, 2), count);
 }
@@ -221,16 +221,16 @@ test "full database test" {
     var pc = try pool.checkout();
     defer pc.release();
 
-    var sandbox = try zzz_db.testing.TestSandbox(sqlite).begin(&pc.conn);
+    var sandbox = try pidgn_db.testing.TestSandbox(sqlite).begin(&pc.conn);
     defer sandbox.rollback();
 
     // Create test data with factory
-    var factory = zzz_db.testing.Factory(sqlite, User).init(&pool);
+    var factory = pidgn_db.testing.Factory(sqlite, User).init(&pool);
     var user = try factory.create(.{
         .name = "Alice",
         .email = "alice@example.com",
     }, std.testing.allocator);
-    defer zzz_db.Repo.freeOne(User, &user, std.testing.allocator);
+    defer pidgn_db.Repo.freeOne(User, &user, std.testing.allocator);
 
     // Run assertions against the test data
     try std.testing.expect(user.id > 0);

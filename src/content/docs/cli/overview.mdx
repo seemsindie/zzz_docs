@@ -1,11 +1,11 @@
 ---
 title: CLI Overview
-description: Install and use the zzz command-line tool for project scaffolding, code generation, migrations, and development.
+description: Install and use the pidgn command-line tool for project scaffolding, code generation, migrations, and development.
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-The `zzz` CLI is the companion tool for the zzz web framework. It handles project scaffolding, code generation, database migrations, a development server with auto-reload, and utility commands for inspecting routes, running tests, and exporting OpenAPI specs.
+The `pidgn` CLI is the companion tool for the pidgn web framework. It handles project scaffolding, code generation, database migrations, a development server with auto-reload, and utility commands for inspecting routes, running tests, and exporting OpenAPI specs.
 
 ## Installation
 
@@ -14,18 +14,18 @@ The `zzz` CLI is the companion tool for the zzz web framework. It handles projec
     The quickest way to install on macOS or Linux:
 
     ```bash
-    curl -fsSL https://zzz.indielab.link/install.sh | sh
+    curl -fsSL https://pidgn.indielab.link/install.sh | sh
     ```
 
     To install a specific version:
 
     ```bash
-    ZZZ_VERSION=v0.1.0 curl -fsSL https://zzz.indielab.link/install.sh | sh
+    ZZZ_VERSION=v0.1.0 curl -fsSL https://pidgn.indielab.link/install.sh | sh
     ```
   </TabItem>
   <TabItem label="GitHub Releases">
     Download a pre-built binary for your platform from the
-    [Releases page](https://github.com/seemsindie/zzz_cli/releases).
+    [Releases page](https://github.com/seemsindie/pidgn_cli/releases).
 
     Binaries are available for:
     - macOS (arm64, x86_64)
@@ -35,10 +35,10 @@ The `zzz` CLI is the companion tool for the zzz web framework. It handles projec
     Clone the repository and build with Zig:
 
     ```bash
-    git clone https://github.com/seemsindie/zzz_cli.git
-    cd zzz_cli
+    git clone https://github.com/seemsindie/pidgn_cli.git
+    cd pidgn_cli
     zig build
-    # Binary is at zig-out/bin/zzz
+    # Binary is at zig-out/bin/pidgn
     ```
 
     Requires Zig 0.16.0-dev.2535+b5bd49460 or later.
@@ -49,45 +49,45 @@ The `zzz` CLI is the companion tool for the zzz web framework. It handles projec
 
 | Command | Alias | Description |
 |---------|-------|-------------|
-| `zzz new <name>` | | Create a new zzz project with full directory structure |
-| `zzz server` | `zzz s` | Start a development server with auto-reload |
-| `zzz gen controller <Name>` | | Generate a RESTful controller |
-| `zzz gen model <Name> [field:type ...]` | | Generate a database model and migration |
-| `zzz gen channel <Name>` | | Generate a WebSocket channel |
-| `zzz gen mailer <Name> [--template]` | | Generate an email mailer module |
-| `zzz migrate` | | Run pending database migrations |
-| `zzz migrate rollback` | | Roll back the last migration |
-| `zzz migrate status` | | Show current migration status |
-| `zzz routes` | | List all application routes |
-| `zzz swagger` | | Export the OpenAPI specification as JSON |
-| `zzz test` | | Run project tests via `zig build test` |
-| `zzz deps` | | List workspace dependencies |
-| `zzz version` | | Print the CLI version |
+| `pidgn new <name>` | | Create a new pidgn project with full directory structure |
+| `pidgn server` | `pidgn s` | Start a development server with auto-reload |
+| `pidgn gen controller <Name>` | | Generate a RESTful controller |
+| `pidgn gen model <Name> [field:type ...]` | | Generate a database model and migration |
+| `pidgn gen channel <Name>` | | Generate a WebSocket channel |
+| `pidgn gen mailer <Name> [--template]` | | Generate an email mailer module |
+| `pidgn migrate` | | Run pending database migrations |
+| `pidgn migrate rollback` | | Roll back the last migration |
+| `pidgn migrate status` | | Show current migration status |
+| `pidgn routes` | | List all application routes |
+| `pidgn swagger` | | Export the OpenAPI specification as JSON |
+| `pidgn test` | | Run project tests via `zig build test` |
+| `pidgn deps` | | List workspace dependencies |
+| `pidgn version` | | Print the CLI version |
 
 ## Quick-start workflow
 
 ```bash
-zzz new blog
+pidgn new blog
 cd blog
-zzz gen model Post title:string content:text published:boolean
-zzz gen controller Posts
-zzz gen channel Comments
-zzz migrate
-zzz server
+pidgn gen model Post title:string content:text published:boolean
+pidgn gen controller Posts
+pidgn gen channel Comments
+pidgn migrate
+pidgn server
 ```
 
 After running these commands you will have a working project with a `Post` model, a RESTful `Posts` controller, a `Comments` WebSocket channel, and a development server listening on `http://127.0.0.1:4000`.
 
 ## Project requirements
 
-The zzz CLI and generated projects require:
+The pidgn CLI and generated projects require:
 
 - **Zig** 0.16.0-dev.2535+b5bd49460 or later
-- **zzz.zig** framework (pulled in automatically via `build.zig.zon`)
+- **pidgn.zig** framework (pulled in automatically via `build.zig.zon`)
 
 ## Next steps
 
-- [Create a new project](/cli/new-project) with `zzz new`
-- [Generate code](/cli/generators) with `zzz gen`
-- [Run migrations](/cli/migrations-cli) with `zzz migrate`
-- [Start the dev server](/cli/dev-server) with `zzz server`
+- [Create a new project](/cli/new-project) with `pidgn new`
+- [Generate code](/cli/generators) with `pidgn gen`
+- [Run migrations](/cli/migrations-cli) with `pidgn migrate`
+- [Start the dev server](/cli/dev-server) with `pidgn server`

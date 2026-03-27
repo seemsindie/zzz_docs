@@ -1,11 +1,11 @@
 ---
 title: "Email Templates"
-description: "Create templated emails with HTML and plain text bodies, MIME multipart messages, and the zzz template engine."
+description: "Create templated emails with HTML and plain text bodies, MIME multipart messages, and the pidgn template engine."
 ---
 
 import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
 
-zzz_mailer supports both inline email bodies and template-driven emails using the zzz template engine. This page covers constructing plain text, HTML, and multipart emails, working with attachments, and using `.zzz` templates for dynamic content.
+pidgn_mailer supports both inline email bodies and template-driven emails using the pidgn template engine. This page covers constructing plain text, HTML, and multipart emails, working with attachments, and using `.pidgn` templates for dynamic content.
 
 ## Plain text and HTML bodies
 
@@ -68,12 +68,12 @@ It is best practice to always provide both `text_body` and `html_body`. Some mai
 
 ## MIME message construction
 
-zzz_mailer includes a built-in `MimeBuilder` that constructs RFC 5322 / RFC 2045 compliant messages from an `Email` struct. You generally do not need to use this directly -- the adapters call it internally -- but it is available for advanced use cases.
+pidgn_mailer includes a built-in `MimeBuilder` that constructs RFC 5322 / RFC 2045 compliant messages from an `Email` struct. You generally do not need to use this directly -- the adapters call it internally -- but it is available for advanced use cases.
 
 ```zig
-const zzz_mailer = @import("zzz_mailer");
-const MimeBuilder = zzz_mailer.MimeBuilder;
-const Email = zzz_mailer.Email;
+const pidgn_mailer = @import("pidgn_mailer");
+const MimeBuilder = pidgn_mailer.MimeBuilder;
+const Email = pidgn_mailer.Email;
 
 const email = Email{
     .from = .{ .email = "sender@example.com" },
@@ -168,7 +168,7 @@ const email = Email{
     .subject = "Custom headers example",
     .text_body = "This email has custom headers.",
     .headers = &.{
-        .{ .name = "X-Mailer", .value = "zzz_mailer/0.1.0" },
+        .{ .name = "X-Mailer", .value = "pidgn_mailer/0.1.0" },
         .{ .name = "X-Priority", .value = "1" },
         .{ .name = "List-Unsubscribe", .value = "<https://example.com/unsubscribe>" },
     },
@@ -177,16 +177,16 @@ const email = Email{
 
 ## Using the template engine for email bodies
 
-For dynamic emails with variable content, use the zzz template engine. The `zzz_template` module is re-exported through `zzz_mailer.template` for convenience.
+For dynamic emails with variable content, use the pidgn template engine. The `pidgn_template` module is re-exported through `pidgn_mailer.template` for convenience.
 
 ### Inline templates
 
 Define templates as comptime strings and render them with data:
 
 ```zig
-const zzz_mailer = @import("zzz_mailer");
-const Email = zzz_mailer.Email;
-const tmpl = zzz_mailer.template;
+const pidgn_mailer = @import("pidgn_mailer");
+const Email = pidgn_mailer.Email;
+const tmpl = pidgn_mailer.template;
 
 const HtmlTemplate = tmpl.template(
     \\<!DOCTYPE html>
@@ -230,7 +230,7 @@ For larger templates, store them as separate files and embed them at compile tim
 <Steps>
 1. **Create template files**
 
-   Create `src/templates/welcome.html.zzz`:
+   Create `src/templates/welcome.html.pidgn`:
    ```html
    <!DOCTYPE html>
    <html>
@@ -243,7 +243,7 @@ For larger templates, store them as separate files and embed them at compile tim
    </html>
    ```
 
-   Create `src/templates/welcome.txt.zzz`:
+   Create `src/templates/welcome.txt.pidgn`:
    ```
    {{subject}}
 
@@ -258,14 +258,14 @@ For larger templates, store them as separate files and embed them at compile tim
 2. **Embed and render in your mailer module**
 
    ```zig
-   const zzz_mailer = @import("zzz_mailer");
-   const tmpl = zzz_mailer.template;
-   const Email = zzz_mailer.Email;
+   const pidgn_mailer = @import("pidgn_mailer");
+   const tmpl = pidgn_mailer.template;
+   const Email = pidgn_mailer.Email;
 
-   const HtmlTemplate = tmpl.template(@embedFile("templates/welcome.html.zzz"));
-   const TextTemplate = tmpl.template(@embedFile("templates/welcome.txt.zzz"));
+   const HtmlTemplate = tmpl.template(@embedFile("templates/welcome.html.pidgn"));
+   const TextTemplate = tmpl.template(@embedFile("templates/welcome.txt.pidgn"));
 
-   pub fn build(allocator: std.mem.Allocator, to: zzz_mailer.Address, data: anytype) !Email {
+   pub fn build(allocator: std.mem.Allocator, to: pidgn_mailer.Address, data: anytype) !Email {
        return Email{
            .from = .{ .email = "noreply@example.com", .name = "My App" },
            .to = &.{to},
@@ -279,24 +279,24 @@ For larger templates, store them as separate files and embed them at compile tim
 
 ### Generating mailer modules with the CLI
 
-The `zzz` CLI can scaffold a mailer module for you:
+The `pidgn` CLI can scaffold a mailer module for you:
 
 ```bash
-zzz gen mailer welcome
+pidgn gen mailer welcome
 ```
 
 This generates a mailer module with `build` function, HTML body, and text body methods. The generated code follows the pattern shown above.
 
-For template-based mailers with separate `.zzz` template files:
+For template-based mailers with separate `.pidgn` template files:
 
 ```bash
-zzz gen mailer welcome --templates
+pidgn gen mailer welcome --templates
 ```
 
-This additionally creates `templates/welcome.html.zzz` and `templates/welcome.txt.zzz` files using `@embedFile`.
+This additionally creates `templates/welcome.html.pidgn` and `templates/welcome.txt.pidgn` files using `@embedFile`.
 
 ## Next steps
 
 - [Mailer Overview](/mailer/overview/) -- core mailer concepts, rate limiting, and telemetry
 - [Adapters](/mailer/adapters/) -- configure delivery backends
-- [Template Syntax](/templates/syntax/) -- full reference for the zzz template language
+- [Template Syntax](/templates/syntax/) -- full reference for the pidgn template language

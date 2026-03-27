@@ -5,7 +5,7 @@ description: "Versioned database schema changes with up/down migrations."
 
 import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
 
-Migrations manage database schema changes with versioned up/down functions and DDL helpers. Each migration has a unique version number, a name, and a pair of `up`/`down` functions that apply or revert the change. zzz_db tracks applied migrations in a `schema_migrations` table so that `migrate` is idempotent and rollbacks are precise.
+Migrations manage database schema changes with versioned up/down functions and DDL helpers. Each migration has a unique version number, a name, and a pair of `up`/`down` functions that apply or revert the change. pidgn_db tracks applied migrations in a `schema_migrations` table so that `migrate` is idempotent and rollbacks are precise.
 
 ## Defining migrations
 
@@ -18,13 +18,13 @@ A migration is a `MigrationDef` struct with four fields:
 | `up` | `*const fn (*MigrationContext) anyerror!void` | Function that applies the migration. |
 | `down` | `*const fn (*MigrationContext) anyerror!void` | Function that reverts the migration. |
 
-`MigrationDef` is parameterized by backend, so you use `zzz_db.MigrationDef(sqlite)` or `zzz_db.MigrationDef(postgres)` depending on your database.
+`MigrationDef` is parameterized by backend, so you use `pidgn_db.MigrationDef(sqlite)` or `pidgn_db.MigrationDef(postgres)` depending on your database.
 
 ```zig
-const zzz_db = @import("zzz_db");
-const sqlite = zzz_db.sqlite;
-const MigrationDef = zzz_db.MigrationDef(sqlite);
-const MigCtx = zzz_db.MigrationContext(sqlite);
+const pidgn_db = @import("pidgn_db");
+const sqlite = pidgn_db.sqlite;
+const MigrationDef = pidgn_db.MigrationDef(sqlite);
+const MigCtx = pidgn_db.MigrationContext(sqlite);
 
 const migrations = [_]MigrationDef{
     .{
@@ -181,14 +181,14 @@ try ctx.execRaw("CREATE EXTENSION IF NOT EXISTS pgcrypto");
 1. Create a connection pool:
 
    ```zig
-   var pool = try zzz_db.SqlitePool.init(.{ .size = 5 });
+   var pool = try pidgn_db.SqlitePool.init(.{ .size = 5 });
    defer pool.deinit();
    ```
 
 2. Initialize the migration runner:
 
    ```zig
-   const runner = zzz_db.Runner(sqlite).init(&pool);
+   const runner = pidgn_db.Runner(sqlite).init(&pool);
    ```
 
 3. Run all pending migrations:
@@ -243,7 +243,7 @@ Each `MigrationStatus` contains:
 
 ## Migration tracking table
 
-zzz_db automatically creates a `schema_migrations` table when you first call `migrate`, `rollback`, or `status`. The table has two columns:
+pidgn_db automatically creates a `schema_migrations` table when you first call `migrate`, `rollback`, or `status`. The table has two columns:
 
 <Tabs>
   <TabItem label="SQLite">

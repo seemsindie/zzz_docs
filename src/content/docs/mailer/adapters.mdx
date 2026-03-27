@@ -1,11 +1,11 @@
 ---
 title: "Mailer Adapters"
-description: "Configure SMTP, SendGrid, Mailgun, and development adapters for zzz_mailer email delivery."
+description: "Configure SMTP, SendGrid, Mailgun, and development adapters for pidgn_mailer email delivery."
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-zzz_mailer uses a compile-time adapter pattern for email delivery. Every adapter implements the same interface, and you select one when instantiating `Mailer(Adapter)`. This page covers the built-in adapters and how to write your own.
+pidgn_mailer uses a compile-time adapter pattern for email delivery. Every adapter implements the same interface, and you select one when instantiating `Mailer(Adapter)`. This page covers the built-in adapters and how to write your own.
 
 ## Adapter interface
 
@@ -40,9 +40,9 @@ The `Mailer` generic validates these declarations at comptime. If any are missin
 Delivers email over SMTP with optional STARTTLS and authentication. This is the most common adapter for production use.
 
 ```zig
-const zzz_mailer = @import("zzz_mailer");
-const SmtpAdapter = zzz_mailer.SmtpAdapter;
-const Mailer = zzz_mailer.Mailer;
+const pidgn_mailer = @import("pidgn_mailer");
+const SmtpAdapter = pidgn_mailer.SmtpAdapter;
+const Mailer = pidgn_mailer.Mailer;
 
 var mailer = Mailer(SmtpAdapter).init(.{
     .adapter = .{
@@ -73,9 +73,9 @@ The adapter performs the full SMTP handshake: connect, EHLO, STARTTLS (if enable
 Delivers email via the SendGrid v3 REST API over HTTPS.
 
 ```zig
-const zzz_mailer = @import("zzz_mailer");
-const SendGridAdapter = zzz_mailer.SendGridAdapter;
-const Mailer = zzz_mailer.Mailer;
+const pidgn_mailer = @import("pidgn_mailer");
+const SendGridAdapter = pidgn_mailer.SendGridAdapter;
+const Mailer = pidgn_mailer.Mailer;
 
 var mailer = Mailer(SendGridAdapter).init(.{
     .adapter = .{
@@ -98,9 +98,9 @@ The adapter builds a JSON payload matching the SendGrid v3 `/mail/send` endpoint
 Delivers email via the Mailgun REST API using multipart form data over HTTPS.
 
 ```zig
-const zzz_mailer = @import("zzz_mailer");
-const MailgunAdapter = zzz_mailer.MailgunAdapter;
-const Mailer = zzz_mailer.Mailer;
+const pidgn_mailer = @import("pidgn_mailer");
+const MailgunAdapter = pidgn_mailer.MailgunAdapter;
+const Mailer = pidgn_mailer.Mailer;
 
 var mailer = Mailer(MailgunAdapter).init(.{
     .adapter = .{
@@ -122,13 +122,13 @@ The adapter posts multipart form data to `https://api.mailgun.net/v3/{domain}/me
 
 ### DevAdapter
 
-Stores sent emails in an in-memory ring buffer (up to 256 emails) for inspection through the built-in dev mailbox web UI at `/__zzz/mailbox`. This is the recommended adapter during development.
+Stores sent emails in an in-memory ring buffer (up to 256 emails) for inspection through the built-in dev mailbox web UI at `/__pidgn/mailbox`. This is the recommended adapter during development.
 
 ```zig
-const zzz_mailer = @import("zzz_mailer");
-const DevAdapter = zzz_mailer.DevAdapter;
+const pidgn_mailer = @import("pidgn_mailer");
+const DevAdapter = pidgn_mailer.DevAdapter;
 
-var mailer = zzz_mailer.DevMailer.init(.{});
+var mailer = pidgn_mailer.DevMailer.init(.{});
 defer mailer.deinit();
 
 // Send an email -- it will appear in the dev mailbox
@@ -154,10 +154,10 @@ The `DevAdapter` stores full email data including from, to, cc, bcc, subject, te
 A minimal in-memory adapter designed for automated tests. It stores subjects and addresses in a fixed-size ring buffer and provides assertion helpers.
 
 ```zig
-const zzz_mailer = @import("zzz_mailer");
-const TestAdapter = zzz_mailer.TestAdapter;
+const pidgn_mailer = @import("pidgn_mailer");
+const TestAdapter = pidgn_mailer.TestAdapter;
 
-var mailer = zzz_mailer.TestMailer.init(.{});
+var mailer = pidgn_mailer.TestMailer.init(.{});
 defer mailer.deinit();
 
 _ = mailer.send(email, std.testing.allocator);
@@ -185,10 +185,10 @@ mailer.adapter.clear();
 Logs email details to stderr without actually delivering them. Always returns success. Useful for debugging or as a fallback.
 
 ```zig
-const zzz_mailer = @import("zzz_mailer");
-const LogAdapter = zzz_mailer.LogAdapter;
+const pidgn_mailer = @import("pidgn_mailer");
+const LogAdapter = pidgn_mailer.LogAdapter;
 
-var mailer = zzz_mailer.LogMailer.init(.{
+var mailer = pidgn_mailer.LogMailer.init(.{
     .adapter = .{ .prefix = "[MAIL]" },
 });
 defer mailer.deinit();
@@ -198,7 +198,7 @@ defer mailer.deinit();
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `prefix` | `[]const u8` | `"[zzz_mailer]"` | Prefix prepended to each log line |
+| `prefix` | `[]const u8` | `"[pidgn_mailer]"` | Prefix prepended to each log line |
 
 Output example:
 ```
@@ -213,10 +213,10 @@ Output example:
 
 The `SmtpAdapter`, `SendGridAdapter`, and `MailgunAdapter` are feature-gated behind build options. If their feature flag is not enabled, they resolve to an empty `struct {}` so your code compiles without their dependencies.
 
-These are controlled by the `mailer_options` build module. When adding `zzz_mailer` as a dependency, you can pass options to enable or disable adapters:
+These are controlled by the `mailer_options` build module. When adding `pidgn_mailer` as a dependency, you can pass options to enable or disable adapters:
 
 ```zig
-const zzz_mailer = b.dependency("zzz_mailer", .{
+const pidgn_mailer = b.dependency("pidgn_mailer", .{
     .target = target,
     .optimize = optimize,
     .smtp_enabled = true,
@@ -244,14 +244,14 @@ exe.root_module.addOptions("build_options", options);
 ```zig
 // In your application code
 const build_options = @import("build_options");
-const zzz_mailer = @import("zzz_mailer");
+const pidgn_mailer = @import("pidgn_mailer");
 
 const AppAdapter = if (build_options.use_smtp)
-    zzz_mailer.SmtpAdapter
+    pidgn_mailer.SmtpAdapter
 else
-    zzz_mailer.DevAdapter;
+    pidgn_mailer.DevAdapter;
 
-var mailer = zzz_mailer.Mailer(AppAdapter).init(.{
+var mailer = pidgn_mailer.Mailer(AppAdapter).init(.{
     .adapter = .{},
 });
 ```
@@ -259,16 +259,16 @@ var mailer = zzz_mailer.Mailer(AppAdapter).init(.{
 <TabItem label="Separate modules">
 ```zig
 // src/mailer_dev.zig
-const zzz_mailer = @import("zzz_mailer");
-pub const AppMailer = zzz_mailer.DevMailer;
+const pidgn_mailer = @import("pidgn_mailer");
+pub const AppMailer = pidgn_mailer.DevMailer;
 
 pub fn create() AppMailer {
     return AppMailer.init(.{});
 }
 
 // src/mailer_prod.zig
-const zzz_mailer = @import("zzz_mailer");
-pub const AppMailer = zzz_mailer.SmtpMailer;
+const pidgn_mailer = @import("pidgn_mailer");
+pub const AppMailer = pidgn_mailer.SmtpMailer;
 
 pub fn create() AppMailer {
     return AppMailer.init(.{
@@ -290,9 +290,9 @@ To create your own adapter, implement the required interface:
 
 ```zig
 const std = @import("std");
-const zzz_mailer = @import("zzz_mailer");
-const Email = zzz_mailer.Email;
-const SendResult = zzz_mailer.SendResult;
+const pidgn_mailer = @import("pidgn_mailer");
+const Email = pidgn_mailer.Email;
+const SendResult = pidgn_mailer.SendResult;
 
 pub const MyCustomAdapter = struct {
     pub const Config = struct {
@@ -316,7 +316,7 @@ pub const MyCustomAdapter = struct {
 };
 
 // Use it with the generic Mailer:
-const CustomMailer = zzz_mailer.Mailer(MyCustomAdapter);
+const CustomMailer = pidgn_mailer.Mailer(MyCustomAdapter);
 ```
 
 ## Next steps

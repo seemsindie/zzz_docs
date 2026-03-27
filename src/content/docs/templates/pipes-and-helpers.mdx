@@ -231,9 +231,9 @@ Here is a blog post template that uses multiple pipes:
 ```
 
 ```zig
-const BlogPost = zzz.template(@embedFile("../templates/post.html.zzz"));
+const BlogPost = pidgn.template(@embedFile("../templates/post.html.pidgn"));
 
-fn showPost(ctx: *zzz.Context) !void {
+fn showPost(ctx: *pidgn.Context) !void {
     try ctx.render(BlogPost, .ok, .{
         .title = "Building Web Apps with Zig and the Zzz Framework",
         .author = "alice",

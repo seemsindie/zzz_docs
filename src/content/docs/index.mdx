@@ -1,5 +1,5 @@
 ---
-title: zzz - A Zig Web Framework
+title: pidgn - A Zig Web Framework
 description: A Phoenix-inspired, batteries-included web framework for Zig. Blazing fast, memory-safe, with compile-time route resolution.
 template: splash
 hero:
@@ -12,14 +12,14 @@ hero:
       icon: right-arrow
       variant: primary
     - text: View on GitHub
-      link: https://github.com/seemsindie/zzz.zig
+      link: https://github.com/seemsindie/pidgn
       icon: external
       variant: minimal
 ---
 
 import { Card, CardGrid } from '@astrojs/starlight/components';
 
-## Why zzz?
+## Why pidgn?
 
 <CardGrid stagger>
   <Card title="Compile-time Router" icon="rocket">
@@ -29,7 +29,7 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
     Logging, CORS, compression, auth, rate limiting, CSRF, sessions, body parsing, static files, and more — all included.
   </Card>
   <Card title="Phoenix-style Channels" icon="star">
-    Real-time WebSocket channels with topic-based pub/sub, presence tracking, and a zzz.js client library.
+    Real-time WebSocket channels with topic-based pub/sub, presence tracking, and a pidgn.js client library.
   </Card>
   <Card title="Database Layer" icon="document">
     Compile-time schema definitions, type-safe repositories, composable query builder, migrations, and connection pooling.
@@ -52,28 +52,28 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
 
 | Package | Description |
 |---------|-------------|
-| **zzz.zig** | Core framework — HTTP server, router, middleware, WebSockets, channels |
-| **zzz_db** | Database layer — SQLite & PostgreSQL, schemas, repos, query builder, migrations |
-| **zzz_jobs** | Background jobs — queues, workers, retry strategies, cron, telemetry |
-| **zzz_mailer** | Email — SMTP adapters and templated emails |
-| **zzz_template** | Template engine — layouts, partials, pipes, htmx helpers |
-| **zzz_cli** | CLI tool — project scaffolding, generators, dev server, migrations |
-| **zzz_example_app** | Reference application demonstrating full-stack zzz usage |
+| **pidgn.zig** | Core framework — HTTP server, router, middleware, WebSockets, channels |
+| **pidgn_db** | Database layer — SQLite & PostgreSQL, schemas, repos, query builder, migrations |
+| **pidgn_jobs** | Background jobs — queues, workers, retry strategies, cron, telemetry |
+| **pidgn_mailer** | Email — SMTP adapters and templated emails |
+| **pidgn_template** | Template engine — layouts, partials, pipes, htmx helpers |
+| **pidgn_cli** | CLI tool — project scaffolding, generators, dev server, migrations |
+| **pidgn_example_app** | Reference application demonstrating full-stack pidgn usage |
 
 ## Quick taste
 
 ```zig
 const std = @import("std");
-const zzz = @import("zzz");
+const pidgn = @import("pidgn");
 
-fn index(ctx: *zzz.Context) !void {
-    ctx.text(.ok, "Hello from zzz!");
+fn index(ctx: *pidgn.Context) !void {
+    ctx.text(.ok, "Hello from pidgn!");
 }
 
-const App = zzz.Router.define(.{
-    .middleware = &.{zzz.logger},
+const App = pidgn.Router.define(.{
+    .middleware = &.{pidgn.logger},
     .routes = &.{
-        zzz.Router.get("/", index),
+        pidgn.Router.get("/", index),
     },
 });
 
@@ -81,7 +81,7 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
 
-    var server = zzz.Server.init(gpa.allocator(), .{
+    var server = pidgn.Server.init(gpa.allocator(), .{
         .port = 4000,
     }, &App.handler);
 

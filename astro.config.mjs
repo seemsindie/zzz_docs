@@ -8,7 +8,7 @@ export default defineConfig({
 	vite: { plugins: [tailwindcss()] },
 	integrations: [
 		starlight({
-			title: 'zzz',
+			title: 'pidgn',
 			head: [
 				{
 					tag: 'script',
@@ -25,10 +25,10 @@ export default defineConfig({
 				replacesTitle: true,
 			},
 			social: [
-				{ icon: 'github', label: 'GitHub', href: 'https://github.com/seemsindie/zzz.zig' },
+				{ icon: 'github', label: 'GitHub', href: 'https://github.com/seemsindie/pidgn' },
 			],
 			editLink: {
-				baseUrl: 'https://github.com/seemsindie/zzz_docs/edit/main/',
+				baseUrl: 'https://github.com/seemsindie/pidgn_docs/edit/main/',
 			},
 			customCss: ['./src/styles/custom.css'],
 			sidebar: [
@@ -92,7 +92,7 @@ export default defineConfig({
 						{ label: 'Overview', slug: 'websockets/overview' },
 						{ label: 'Channels', slug: 'websockets/channels' },
 						{ label: 'Presence', slug: 'websockets/presence' },
-						{ label: 'zzz.js Client', slug: 'websockets/zzz-js-client' },
+						{ label: 'pidgn.js Client', slug: 'websockets/pidgn-js-client' },
 					],
 				},
 				{

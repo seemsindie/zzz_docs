@@ -1,11 +1,11 @@
 ---
 title: "Retry Strategies"
-description: "How zzz_jobs handles failed jobs with exponential, linear, constant, and custom retry strategies, including max attempts and dead letter behavior."
+description: "How pidgn_jobs handles failed jobs with exponential, linear, constant, and custom retry strategies, including max attempts and dead letter behavior."
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-When a worker handler returns an error, zzz_jobs does not immediately discard the job. Instead, it consults the retry strategy configured on the worker to compute a backoff delay, then re-schedules the job for a future attempt. This continues until the job either succeeds or exhausts its maximum attempts.
+When a worker handler returns an error, pidgn_jobs does not immediately discard the job. Instead, it consults the retry strategy configured on the worker to compute a backoff delay, then re-schedules the job for a future attempt. This continues until the job either succeeds or exhausts its maximum attempts.
 
 ## How retries work
 

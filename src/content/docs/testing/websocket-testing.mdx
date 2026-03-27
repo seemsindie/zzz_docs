@@ -25,10 +25,10 @@ No TCP listener, no WebSocket handshake, no event loop -- just your channel logi
 1. **Define your channels** as you normally would:
 
    ```zig
-   const zzz = @import("zzz");
-   const ChannelDef = zzz.ChannelDef;
-   const Socket = zzz.Socket;
-   const JoinResult = zzz.JoinResult;
+   const pidgn = @import("pidgn");
+   const ChannelDef = pidgn.ChannelDef;
+   const Socket = pidgn.Socket;
+   const JoinResult = pidgn.JoinResult;
 
    const channels: []const ChannelDef = &.{
        .{
@@ -58,7 +58,7 @@ No TCP listener, no WebSocket handshake, no event loop -- just your channel logi
    const std = @import("std");
 
    test "channel basics" {
-       var ch = zzz.testing.TestChannel(&channels).init(std.testing.allocator);
+       var ch = pidgn.testing.TestChannel(&channels).init(std.testing.allocator);
        defer ch.deinit();
        ch.setup();
 
@@ -77,7 +77,7 @@ Use `join` to simulate a client joining a channel topic. The return value tells 
 
 ```zig
 test "join success" {
-    var ch = zzz.testing.TestChannel(&channels).init(std.testing.allocator);
+    var ch = pidgn.testing.TestChannel(&channels).init(std.testing.allocator);
     defer ch.deinit();
     ch.setup();
 
@@ -87,7 +87,7 @@ test "join success" {
 }
 
 test "join rejection" {
-    var ch = zzz.testing.TestChannel(&channels).init(std.testing.allocator);
+    var ch = pidgn.testing.TestChannel(&channels).init(std.testing.allocator);
     defer ch.deinit();
     ch.setup();
 
@@ -97,7 +97,7 @@ test "join rejection" {
 }
 
 test "join unknown topic" {
-    var ch = zzz.testing.TestChannel(&channels).init(std.testing.allocator);
+    var ch = pidgn.testing.TestChannel(&channels).init(std.testing.allocator);
     defer ch.deinit();
     ch.setup();
 
@@ -117,7 +117,7 @@ After joining, use `push` to send an event to a channel. The channel handler run
 
 ```zig
 test "push and receive" {
-    var ch = zzz.testing.TestChannel(&channels).init(std.testing.allocator);
+    var ch = pidgn.testing.TestChannel(&channels).init(std.testing.allocator);
     defer ch.deinit();
     ch.setup();
 
@@ -134,7 +134,7 @@ If you push to a topic the client has not joined, the push is silently ignored:
 
 ```zig
 test "push without join is ignored" {
-    var ch = zzz.testing.TestChannel(&channels).init(std.testing.allocator);
+    var ch = pidgn.testing.TestChannel(&channels).init(std.testing.allocator);
     defer ch.deinit();
     ch.setup();
 
@@ -171,7 +171,7 @@ Use `leave` to simulate a client disconnecting from a topic. If the channel defi
 
 ```zig
 test "leave a topic" {
-    var ch = zzz.testing.TestChannel(&channels).init(std.testing.allocator);
+    var ch = pidgn.testing.TestChannel(&channels).init(std.testing.allocator);
     defer ch.deinit();
     ch.setup();
 
@@ -194,7 +194,7 @@ Two methods control state cleanup between test scenarios:
 
 ```zig
 test "reset clears everything" {
-    var ch = zzz.testing.TestChannel(&channels).init(std.testing.allocator);
+    var ch = pidgn.testing.TestChannel(&channels).init(std.testing.allocator);
     defer ch.deinit();
     ch.setup();
 
@@ -224,10 +224,10 @@ The test channel stores up to 64 sent messages. For most test scenarios this is 
 
 ```zig
 const std = @import("std");
-const zzz = @import("zzz");
-const ChannelDef = zzz.ChannelDef;
-const Socket = zzz.Socket;
-const JoinResult = zzz.JoinResult;
+const pidgn = @import("pidgn");
+const ChannelDef = pidgn.ChannelDef;
+const Socket = pidgn.Socket;
+const JoinResult = pidgn.JoinResult;
 
 const chat_channels: []const ChannelDef = &.{
     .{
@@ -256,7 +256,7 @@ const chat_channels: []const ChannelDef = &.{
 };
 
 test "chat room flow" {
-    var ch = zzz.testing.TestChannel(&chat_channels).init(std.testing.allocator);
+    var ch = pidgn.testing.TestChannel(&chat_channels).init(std.testing.allocator);
     defer ch.deinit();
     ch.setup();
 

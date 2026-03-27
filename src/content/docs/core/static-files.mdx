@@ -10,11 +10,11 @@ The static files middleware serves files from a directory on disk, with automati
 Add `staticFiles` to your middleware pipeline. For fingerprinted assets with cache-busting URLs, see the [Asset Pipeline](/frontend/asset-pipeline/) instead.
 
 ```zig
-const App = zzz.Router.define(.{
+const App = pidgn.Router.define(.{
     .middleware = &.{
-        zzz.errorHandler(.{}),
-        zzz.logger,
-        zzz.staticFiles(.{ .dir = "public", .prefix = "/static" }),
+        pidgn.errorHandler(.{}),
+        pidgn.logger,
+        pidgn.staticFiles(.{ .dir = "public", .prefix = "/static" }),
     },
     .routes = &.{ ... },
 });
@@ -31,7 +31,7 @@ With this configuration, a request to `/static/css/app.css` serves the file at `
 | `max_age` | `[]const u8` | `"3600"` | Cache-Control `max-age` value in seconds. |
 
 ```zig
-zzz.staticFiles(.{
+pidgn.staticFiles(.{
     .dir = "assets",
     .prefix = "/assets",
     .max_age = "86400", // 1 day
@@ -109,11 +109,11 @@ Files larger than 10 MB are not served. Empty files are also skipped.
 Outside of the static middleware, you can send a single file from any handler using `ctx.sendFile()`:
 
 ```zig
-fn downloadReport(ctx: *zzz.Context) !void {
+fn downloadReport(ctx: *pidgn.Context) !void {
     ctx.sendFile("reports/monthly.pdf", null); // auto-detect MIME
 }
 
-fn downloadCsv(ctx: *zzz.Context) !void {
+fn downloadCsv(ctx: *pidgn.Context) !void {
     ctx.sendFile("data/export.csv", "text/csv; charset=utf-8"); // explicit MIME
 }
 ```

@@ -1,15 +1,15 @@
 ---
 title: "Performance Tuning"
-description: "Optimize your zzz application for production with compile-time routing, backend selection, response compression, buffer sizing, and connection tuning."
+description: "Optimize your pidgn application for production with compile-time routing, backend selection, response compression, buffer sizing, and connection tuning."
 ---
 
 import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
 
-zzz is designed for performance from the ground up. Routes are resolved at compile time, middleware chains are inlined by the compiler, and the I/O layer is pluggable. This guide covers the knobs you can turn to get the most out of your deployment.
+pidgn is designed for performance from the ground up. Routes are resolved at compile time, middleware chains are inlined by the compiler, and the I/O layer is pluggable. This guide covers the knobs you can turn to get the most out of your deployment.
 
 ## Compile-time routing
 
-One of zzz's most significant performance advantages is that route definitions, pattern matching, and middleware composition are all resolved at `comptime`.
+One of pidgn's most significant performance advantages is that route definitions, pattern matching, and middleware composition are all resolved at `comptime`.
 
 ### How it works
 
@@ -49,7 +49,7 @@ Because every function pointer in the chain is `comptime`-known, the Zig compile
 The choice of backend has a direct impact on throughput and latency characteristics.
 
 <Tabs>
-<TabItem label="zzz (thread pool)">
+<TabItem label="pidgn (thread pool)">
 
 The default backend uses a thread pool with a bounded queue. It excels when:
 
@@ -182,13 +182,13 @@ const config: Server.Config = .{
 
 | Setting | Default | Guidance |
 |---------|---------|----------|
-| `max_connections` | 1024 | Bounded queue capacity (zzz backend). Size this to your expected peak concurrent connections. |
+| `max_connections` | 1024 | Bounded queue capacity (pidgn backend). Size this to your expected peak concurrent connections. |
 | `max_requests_per_connection` | 100 | Limits HTTP pipelining on a single connection. Higher values improve throughput for keep-alive clients. |
 | `kernel_backlog` | 128 | TCP `SO_BACKLOG` for pending connections. Increase for bursty traffic patterns. |
 
 ## Worker thread sizing
 
-For the native zzz backend, the `worker_threads` setting controls how many OS threads handle connections:
+For the native pidgn backend, the `worker_threads` setting controls how many OS threads handle connections:
 
 ```zig
 const config: Server.Config = .{
@@ -238,12 +238,12 @@ Optimizes for binary size over speed. Useful for embedded or containerized deplo
 
 ## Performance checklist
 
-Use this checklist when preparing a zzz application for production:
+Use this checklist when preparing a pidgn application for production:
 
 | Area | Action | Impact |
 |------|--------|--------|
 | Build mode | Use `-Doptimize=ReleaseFast` | Enables inlining of comptime middleware chains |
-| Backend | Evaluate zzz vs libhv for your workload | Platform-native I/O can improve throughput |
+| Backend | Evaluate pidgn vs libhv for your workload | Platform-native I/O can improve throughput |
 | Compression | Add `gzipCompress` middleware | 60-80% bandwidth reduction for text responses |
 | Worker threads | Match `worker_threads` to CPU cores | Prevents over- or under-subscription |
 | Timeouts | Tighten `read_timeout_ms` and `keepalive_timeout_ms` | Frees connections from slow or idle clients |

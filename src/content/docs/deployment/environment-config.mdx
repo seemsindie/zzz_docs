@@ -1,11 +1,11 @@
 ---
 title: "Environment Config"
-description: "Configure your zzz application for different environments using .env files, system variables, and typed config merging."
+description: "Configure your pidgn application for different environments using .env files, system variables, and typed config merging."
 ---
 
 import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
 
-zzz provides a two-layer configuration system: a compile-time `Environment` enum for build-time decisions, and a runtime `Env` loader that reads `.env` files and system environment variables. The `mergeWithEnv` function bridges the two by overlaying runtime values onto your typed config struct.
+pidgn provides a two-layer configuration system: a compile-time `Environment` enum for build-time decisions, and a runtime `Env` loader that reads `.env` files and system environment variables. The `mergeWithEnv` function bridges the two by overlaying runtime values onto your typed config struct.
 
 ## The Env loader
 
@@ -15,8 +15,8 @@ The `Env` struct loads configuration from `.env` files and the system environmen
 
 ```zig
 const std = @import("std");
-const zzz = @import("zzz");
-const Env = zzz.Env;
+const pidgn = @import("pidgn");
+const Env = pidgn.Env;
 
 var env = try Env.init(allocator, .{
     .path = ".env",              // Base .env file path (null to skip)
@@ -121,7 +121,7 @@ const debug = env.getBool("DEBUG", false);
 The `mergeWithEnv` function overlays environment variables onto a Zig struct. For each field in your config struct, it looks up the corresponding environment variable (field name converted from `snake_case` to `UPPER_SNAKE_CASE`):
 
 ```zig
-const zzz = @import("zzz");
+const pidgn = @import("pidgn");
 
 const AppConfig = struct {
     host: []const u8,
@@ -142,10 +142,10 @@ const defaults = AppConfig{
 };
 
 pub fn main() !void {
-    var env = try zzz.Env.init(allocator, .{ .environment = "prod" });
+    var env = try pidgn.Env.init(allocator, .{ .environment = "prod" });
     defer env.deinit();
 
-    const config = zzz.mergeWithEnv(AppConfig, defaults, &env);
+    const config = pidgn.mergeWithEnv(AppConfig, defaults, &env);
     // Fields are overridden if a matching env var exists:
     //   host         <-- HOST
     //   port         <-- PORT
@@ -179,9 +179,9 @@ If a value cannot be parsed, the default from the base config is kept.
 The `configInit` function combines `Env.init` and `mergeWithEnv` into a single call:
 
 ```zig
-const zzz = @import("zzz");
+const pidgn = @import("pidgn");
 
-var result = try zzz.configInit(AppConfig, defaults, allocator, .{
+var result = try pidgn.configInit(AppConfig, defaults, allocator, .{
     .environment = "prod",
 });
 defer result.env.deinit();
@@ -229,7 +229,7 @@ const config = result.config;
 3. **Load the correct overlay** by passing the environment name:
 
    ```zig
-   var result = try zzz.configInit(AppConfig, defaults, allocator, .{
+   var result = try pidgn.configInit(AppConfig, defaults, allocator, .{
        .environment = "prod", // loads .env then .env.prod
    });
    ```
@@ -293,12 +293,12 @@ Keys are considered sensitive (case-insensitive) if they contain any of: `SECRET
 
 ## Database URL parsing
 
-zzz includes a `DatabaseUrl` parser for common database URL formats. It is zero-allocation -- all returned slices point into the original input string.
+pidgn includes a `DatabaseUrl` parser for common database URL formats. It is zero-allocation -- all returned slices point into the original input string.
 
 ```zig
-const zzz = @import("zzz");
+const pidgn = @import("pidgn");
 
-const db = try zzz.DatabaseUrl.parse("postgres://alice:s3cret@db.example.com:5433/myapp");
+const db = try pidgn.DatabaseUrl.parse("postgres://alice:s3cret@db.example.com:5433/myapp");
 // db.scheme   == .postgres
 // db.user     == "alice"
 // db.password == "s3cret"

@@ -1,11 +1,11 @@
 ---
 title: "Deployment Overview"
-description: "Build, configure, and deploy your zzz application to production."
+description: "Build, configure, and deploy your pidgn application to production."
 ---
 
 import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
 
-Zig produces statically-linked, single-binary executables with no runtime dependencies. This makes zzz applications straightforward to deploy -- copy the binary, set environment variables, and run.
+Zig produces statically-linked, single-binary executables with no runtime dependencies. This makes pidgn applications straightforward to deploy -- copy the binary, set environment variables, and run.
 
 ## Production build
 
@@ -47,7 +47,7 @@ The `Environment` enum recognizes these values:
 
 ## Environment configuration
 
-zzz uses `.env` files and system environment variables for runtime configuration. The `Env` loader follows this precedence (highest to lowest):
+pidgn uses `.env` files and system environment variables for runtime configuration. The `Env` loader follows this precedence (highest to lowest):
 
 1. System environment variables (via `getenv`)
 2. `.env.{environment}` entries (e.g., `.env.prod`)
@@ -77,7 +77,7 @@ See the [Environment Config](/deployment/environment-config/) page for full deta
 3. **Load and merge in your application:**
 
    ```zig
-   const zzz = @import("zzz");
+   const pidgn = @import("pidgn");
 
    const AppConfig = struct {
        host: []const u8,
@@ -95,7 +95,7 @@ See the [Environment Config](/deployment/environment-config/) page for full deta
        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
        const allocator = gpa.allocator();
 
-       var result = try zzz.configInit(AppConfig, defaults, allocator, .{
+       var result = try pidgn.configInit(AppConfig, defaults, allocator, .{
            .environment = "prod",
        });
        defer result.env.deinit();
@@ -157,7 +157,7 @@ Use a process manager like systemd to keep it running:
 ```ini
 # /etc/systemd/system/myapp.service
 [Unit]
-Description=My zzz application
+Description=My pidgn application
 After=network.target
 
 [Service]
@@ -232,5 +232,5 @@ The parser is zero-allocation -- all returned slices point into the original URL
 ## Next steps
 
 - [Environment Config](/deployment/environment-config/) -- detailed guide to `.env` files and the `Env` module
-- [Docker](/deployment/docker/) -- containerize your zzz application
+- [Docker](/deployment/docker/) -- containerize your pidgn application
 - [Performance](/advanced/performance/) -- tuning and benchmarking

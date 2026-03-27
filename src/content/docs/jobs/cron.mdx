@@ -1,11 +1,11 @@
 ---
 title: "Cron Scheduling"
-description: "Schedule recurring background jobs in zzz_jobs using standard 5-field cron expressions with timezone support."
+description: "Schedule recurring background jobs in pidgn_jobs using standard 5-field cron expressions with timezone support."
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-zzz_jobs includes a built-in cron scheduler that evaluates standard 5-field cron expressions once per minute and enqueues matching jobs automatically. This is useful for periodic tasks like nightly cleanups, report generation, or data synchronization.
+pidgn_jobs includes a built-in cron scheduler that evaluates standard 5-field cron expressions once per minute and enqueues matching jobs automatically. This is useful for periodic tasks like nightly cleanups, report generation, or data synchronization.
 
 ## How it works
 
@@ -16,9 +16,9 @@ The cron scheduler runs as a dedicated thread inside the supervisor. Every ~30 s
 Register cron jobs on the supervisor after registering workers and before (or after) calling `start()`:
 
 ```zig
-const zzz_jobs = @import("zzz_jobs");
+const pidgn_jobs = @import("pidgn_jobs");
 
-var supervisor = try zzz_jobs.MemorySupervisor.init(.{}, .{
+var supervisor = try pidgn_jobs.MemorySupervisor.init(.{}, .{
     .queues = &.{.{ .name = "default", .concurrency = 5 }},
 });
 defer supervisor.deinit();
@@ -55,7 +55,7 @@ The scheduler supports up to 32 cron entries.
 
 ## Cron expression syntax
 
-zzz_jobs uses standard 5-field cron expressions. Each field is separated by whitespace:
+pidgn_jobs uses standard 5-field cron expressions. Each field is separated by whitespace:
 
 ```
  ┌────────── minute (0-59)
@@ -98,9 +98,9 @@ zzz_jobs uses standard 5-field cron expressions. Each field is separated by whit
 You can use `CronExpr` independently of the supervisor for custom scheduling logic:
 
 ```zig
-const zzz_jobs = @import("zzz_jobs");
+const pidgn_jobs = @import("pidgn_jobs");
 
-const expr = try zzz_jobs.CronExpr.parse("0 9 * * 1-5");
+const expr = try pidgn_jobs.CronExpr.parse("0 9 * * 1-5");
 
 // Check if a specific Unix timestamp matches
 const matches = expr.matches(timestamp);
@@ -129,7 +129,7 @@ By default, cron expressions are evaluated against UTC. For local-time schedulin
 ```zig
 // The CronScheduler accepts a timezone offset at initialization:
 // tz_offset is in seconds: EST = -18000, JST = 32400
-var scheduler = zzz_jobs.CronScheduler(zzz_jobs.MemoryStore)
+var scheduler = pidgn_jobs.CronScheduler(pidgn_jobs.MemoryStore)
     .initWithTimezone(&store, &running, -5 * 3600); // EST
 ```
 
@@ -137,7 +137,7 @@ var scheduler = zzz_jobs.CronScheduler(zzz_jobs.MemoryStore)
 <TabItem label="Via CronExpr">
 
 ```zig
-const expr = try zzz_jobs.CronExpr.parse("0 9 * * *");
+const expr = try pidgn_jobs.CronExpr.parse("0 9 * * *");
 
 // Check if a UTC timestamp matches "9:00 AM EST"
 const est_offset: i32 = -5 * 3600;

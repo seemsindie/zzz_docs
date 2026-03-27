@@ -1,16 +1,16 @@
 ---
 title: Creating a New Project
-description: Use zzz new to scaffold a complete zzz web application with routing, configuration, Docker support, and optional database integration.
+description: Use pidgn new to scaffold a complete pidgn web application with routing, configuration, Docker support, and optional database integration.
 ---
 
 import { Steps } from '@astrojs/starlight/components';
 
-The `zzz new` command generates a ready-to-run project with a sensible directory structure, environment-based configuration, and optional database and Docker support.
+The `pidgn new` command generates a ready-to-run project with a sensible directory structure, environment-based configuration, and optional database and Docker support.
 
 ## Usage
 
 ```bash
-zzz new <project_name> [options]
+pidgn new <project_name> [options]
 ```
 
 Project names may contain letters, numbers, underscores, hyphens, and dots.
@@ -30,7 +30,7 @@ Project names may contain letters, numbers, underscores, hyphens, and dots.
 1. Create the project:
 
    ```bash
-   zzz new my_app
+   pidgn new my_app
    ```
 
 2. Enter the project directory and run:
@@ -82,7 +82,7 @@ When you pass `--full`, the scaffold includes pre-built controllers (`src/contro
 Every generated project uses a two-layer configuration system:
 
 1. **Comptime defaults** -- defined in `config/dev.zig`, `config/prod.zig`, or `config/staging.zig`, selected at build time with the `-Denv` flag.
-2. **Runtime overrides** -- loaded from `.env` and system environment variables via `zzz.mergeWithEnv`.
+2. **Runtime overrides** -- loaded from `.env` and system environment variables via `pidgn.mergeWithEnv`.
 
 Select the environment when building:
 
@@ -109,7 +109,7 @@ When `--db` is set, a `database_url` field is added automatically.
 ### SQLite
 
 ```bash
-zzz new my_app --db=sqlite
+pidgn new my_app --db=sqlite
 ```
 
 Sets `DATABASE_URL=sqlite:my_app.db` in the generated `.env` file and adds `database_url` to the config struct.
@@ -117,10 +117,10 @@ Sets `DATABASE_URL=sqlite:my_app.db` in the generated `.env` file and adds `data
 ### PostgreSQL
 
 ```bash
-zzz new my_app --db=postgres
+pidgn new my_app --db=postgres
 ```
 
-Sets `DATABASE_URL=postgres://zzz:zzz@localhost:5432/zzz_dev` and generates a `docker-compose.yml` that includes PostgreSQL 17 and Adminer services.
+Sets `DATABASE_URL=postgres://pidgn:pidgn@localhost:5432/pidgn_dev` and generates a `docker-compose.yml` that includes PostgreSQL 17 and Adminer services.
 
 ## Docker support
 
@@ -133,7 +133,7 @@ By default, every new project includes:
 To skip Docker files entirely:
 
 ```bash
-zzz new my_app --docker=false
+pidgn new my_app --docker=false
 ```
 
 ## Generated main.zig
@@ -142,11 +142,11 @@ The default `main.zig` sets up a minimal router with a single route and request 
 
 ```zig
 const std = @import("std");
-const zzz = @import("zzz");
+const pidgn = @import("pidgn");
 const app_config = @import("app_config");
 
-const Router = zzz.Router;
-const Context = zzz.Context;
+const Router = pidgn.Router;
+const Context = pidgn.Context;
 
 fn index(ctx: *Context) !void {
     ctx.html(.ok,
@@ -163,8 +163,8 @@ fn index(ctx: *Context) !void {
 
 const App = Router.define(.{
     .middleware = &.{
-        zzz.logger,
-        zzz.healthCheck(.{}),
+        pidgn.logger,
+        pidgn.healthCheck(.{}),
     },
     .routes = &.{
         Router.get("/", index),
@@ -175,12 +175,12 @@ pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
     const io = init.io;
 
-    var env = try zzz.Env.init(allocator, .{});
+    var env = try pidgn.Env.init(allocator, .{});
     defer env.deinit();
 
-    const config = zzz.mergeWithEnv(@TypeOf(app_config.config), app_config.config, &env);
+    const config = pidgn.mergeWithEnv(@TypeOf(app_config.config), app_config.config, &env);
 
-    var server = zzz.Server.init(allocator, .{
+    var server = pidgn.Server.init(allocator, .{
         .host = config.host,
         .port = config.port,
     }, App.handler);

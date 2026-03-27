@@ -1,21 +1,21 @@
 ---
 title: "API Documentation Overview"
-description: "How zzz generates OpenAPI specifications and interactive Swagger UI from your route definitions at compile time."
+description: "How pidgn generates OpenAPI specifications and interactive Swagger UI from your route definitions at compile time."
 ---
 
 import { Steps } from '@astrojs/starlight/components';
 
-zzz includes a built-in OpenAPI 3.1.0 spec generator that derives API documentation directly from your route definitions. Because the spec is generated at compile time, there is zero runtime overhead and the documentation is always in sync with your code.
+pidgn includes a built-in OpenAPI 3.1.0 spec generator that derives API documentation directly from your route definitions. Because the spec is generated at compile time, there is zero runtime overhead and the documentation is always in sync with your code.
 
-## What zzz provides
+## What pidgn provides
 
-The `zzz.swagger` module offers three capabilities:
+The `pidgn.swagger` module offers three capabilities:
 
 | Feature | Module | Description |
 |---|---|---|
-| **Spec generation** | `zzz.swagger.spec` | Produces a complete OpenAPI 3.1.0 JSON document from annotated routes at comptime |
-| **JSON Schema** | `zzz.swagger.schema` | Derives JSON Schema definitions from Zig struct and enum types |
-| **Swagger UI** | `zzz.swagger.middleware` | Serves an interactive Swagger UI page and the raw JSON spec as middleware |
+| **Spec generation** | `pidgn.swagger.spec` | Produces a complete OpenAPI 3.1.0 JSON document from annotated routes at comptime |
+| **JSON Schema** | `pidgn.swagger.schema` | Derives JSON Schema definitions from Zig struct and enum types |
+| **Swagger UI** | `pidgn.swagger.middleware` | Serves an interactive Swagger UI page and the raw JSON spec as middleware |
 
 All three work together: you annotate routes with `.doc()`, point the spec generator at your route table, and plug the Swagger UI middleware into your application. The result is a fully browsable API reference served alongside your application.
 
@@ -26,14 +26,14 @@ All three work together: you annotate routes with `.doc()`, point the spec gener
 1. **Annotate routes** using the `.doc()` method on any route definition. Only annotated routes appear in the generated spec; everything else is excluded.
 
    ```zig
-   zzz.Router.get("/api/status", statusHandler)
+   pidgn.Router.get("/api/status", statusHandler)
        .doc(.{ .summary = "Health check", .response_body = StatusResponse }),
    ```
 
-2. **Generate the spec** by calling `zzz.swagger.generateSpec` with a configuration struct and your route table. This runs entirely at compile time and produces a `[]const u8` containing the OpenAPI JSON.
+2. **Generate the spec** by calling `pidgn.swagger.generateSpec` with a configuration struct and your route table. This runs entirely at compile time and produces a `[]const u8` containing the OpenAPI JSON.
 
    ```zig
-   const api_spec = zzz.swagger.generateSpec(.{
+   const api_spec = pidgn.swagger.generateSpec(.{
        .title = "My API",
        .version = "1.0.0",
    }, routes);
@@ -42,10 +42,10 @@ All three work together: you annotate routes with `.doc()`, point the spec gener
 3. **Serve the UI** by adding the Swagger UI middleware to your application. It serves an interactive HTML page at `/api/docs` and the raw spec at `/api/docs/openapi.json`.
 
    ```zig
-   const App = zzz.Router.define(.{
+   const App = pidgn.Router.define(.{
        .middleware = &.{
            // ... other middleware ...
-           zzz.swagger.ui(.{ .spec_json = api_spec }),
+           pidgn.swagger.ui(.{ .spec_json = api_spec }),
        },
        .routes = routes,
    });
@@ -69,13 +69,13 @@ Routes without a `.doc()` annotation are invisible to the spec generator. This l
 
 ### Automatic schema derivation
 
-When you specify `request_body` or `response_body` types in a `.doc()` annotation, zzz automatically generates JSON Schema definitions for those Zig types and places them in the OpenAPI `components/schemas` section. Struct fields, optional types, enums, arrays, and nested structures are all handled.
+When you specify `request_body` or `response_body` types in a `.doc()` annotation, pidgn automatically generates JSON Schema definitions for those Zig types and places them in the OpenAPI `components/schemas` section. Struct fields, optional types, enums, arrays, and nested structures are all handled.
 
 ## A complete example
 
 ```zig
 const std = @import("std");
-const zzz = @import("zzz");
+const pidgn = @import("pidgn");
 
 const User = struct {
     id: i64,
@@ -88,22 +88,22 @@ const CreateUserRequest = struct {
     email: []const u8,
 };
 
-fn listUsers(ctx: *zzz.Context) !void {
+fn listUsers(ctx: *pidgn.Context) !void {
     ctx.json(.ok, .{ .users = &[_]User{} });
 }
 
-fn createUser(ctx: *zzz.Context) !void {
+fn createUser(ctx: *pidgn.Context) !void {
     ctx.json(.created, .{ .id = 1, .name = "new" });
 }
 
 const routes = &.{
-    zzz.Router.get("/api/users", listUsers)
+    pidgn.Router.get("/api/users", listUsers)
         .doc(.{
             .summary = "List all users",
             .tag = "Users",
             .response_body = []const User,
         }),
-    zzz.Router.post("/api/users", createUser)
+    pidgn.Router.post("/api/users", createUser)
         .doc(.{
             .summary = "Create a user",
             .tag = "Users",
@@ -112,16 +112,16 @@ const routes = &.{
         }),
 };
 
-const api_spec = zzz.swagger.generateSpec(.{
+const api_spec = pidgn.swagger.generateSpec(.{
     .title = "User Service",
     .version = "1.0.0",
     .description = "User management API",
 }, routes);
 
-const App = zzz.Router.define(.{
+const App = pidgn.Router.define(.{
     .middleware = &.{
-        zzz.logger,
-        zzz.swagger.ui(.{ .spec_json = api_spec }),
+        pidgn.logger,
+        pidgn.swagger.ui(.{ .spec_json = api_spec }),
     },
     .routes = routes,
 });

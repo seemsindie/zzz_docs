@@ -1,6 +1,6 @@
 ---
 title: Installation
-description: How to install the zzz CLI and add zzz to your Zig project.
+description: How to install the pidgn CLI and add pidgn to your Zig project.
 ---
 
 import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
@@ -12,38 +12,38 @@ import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
 
 ## Install the CLI
 
-The `zzz` CLI provides project scaffolding, code generation, a dev server, and database migrations.
+The `pidgn` CLI provides project scaffolding, code generation, a dev server, and database migrations.
 
 <Tabs>
   <TabItem label="Shell">
     ```bash
-    curl -fsSL https://zzz.indielab.link/install.sh | sh
+    curl -fsSL https://pidgn.indielab.link/install.sh | sh
     ```
 
     Install a specific version:
 
     ```bash
-    ZZZ_VERSION=v0.1.0 curl -fsSL https://zzz.indielab.link/install.sh | sh
+    ZZZ_VERSION=v0.1.0 curl -fsSL https://pidgn.indielab.link/install.sh | sh
     ```
   </TabItem>
   <TabItem label="Build from source">
     ```bash
-    git clone https://github.com/seemsindie/zzz_cli.git
-    cd zzz_cli
+    git clone https://github.com/seemsindie/pidgn_cli.git
+    cd pidgn_cli
     zig build
-    # Binary at zig-out/bin/zzz
+    # Binary at zig-out/bin/pidgn
     ```
   </TabItem>
   <TabItem label="GitHub Releases">
     Pre-built binaries for macOS (arm64, x86_64) and Linux (x86_64, aarch64) are available on the
-    [Releases](https://github.com/seemsindie/zzz_cli/releases) page.
+    [Releases](https://github.com/seemsindie/pidgn_cli/releases) page.
   </TabItem>
 </Tabs>
 
 Verify the installation:
 
 ```bash
-zzz version
+pidgn version
 ```
 
 ## Create a new project
@@ -52,7 +52,7 @@ zzz version
 1. **Scaffold the project**
 
    ```bash
-   zzz new my_app
+   pidgn new my_app
    ```
 
    This creates a full project structure:
@@ -83,20 +83,20 @@ zzz version
 3. **Start the dev server** (with auto-reload)
 
    ```bash
-   zzz server
+   pidgn server
    ```
 </Steps>
 
 ## Add to an existing project
 
-If you already have a Zig project and want to add zzz as a dependency:
+If you already have a Zig project and want to add pidgn as a dependency:
 
 1. Add the dependency to your `build.zig.zon`:
 
 ```zig
 .dependencies = .{
-    .zzz = .{
-        .url = "https://github.com/seemsindie/zzz.zig/archive/refs/tags/v0.1.0.tar.gz",
+    .pidgn = .{
+        .url = "https://github.com/seemsindie/pidgn/archive/refs/tags/v0.1.0.tar.gz",
         .hash = "...", // zig build will tell you the expected hash
     },
 },
@@ -105,28 +105,28 @@ If you already have a Zig project and want to add zzz as a dependency:
 2. Wire it up in `build.zig`:
 
 ```zig
-const zzz_dep = b.dependency("zzz", .{
+const pidgn_dep = b.dependency("pidgn", .{
     .target = target,
     .optimize = optimize,
 });
 
-exe.root_module.addImport("zzz", zzz_dep.module("zzz"));
+exe.root_module.addImport("pidgn", pidgn_dep.module("pidgn"));
 ```
 
 3. Import and use:
 
 ```zig
-const zzz = @import("zzz");
+const pidgn = @import("pidgn");
 ```
 
 ## Optional dependencies
 
 | Package | What it adds | How to enable |
 |---------|-------------|---------------|
-| **zzz_db** | Database (SQLite & PostgreSQL) | Add `zzz_db` dependency |
-| **zzz_jobs** | Background job processing | Add `zzz_jobs` dependency |
-| **zzz_mailer** | Email sending | Add `zzz_mailer` dependency |
-| **zzz_template** | Template engine | Add `zzz_template` dependency |
+| **pidgn_db** | Database (SQLite & PostgreSQL) | Add `pidgn_db` dependency |
+| **pidgn_jobs** | Background job processing | Add `pidgn_jobs` dependency |
+| **pidgn_mailer** | Email sending | Add `pidgn_mailer` dependency |
+| **pidgn_template** | Template engine | Add `pidgn_template` dependency |
 
 ## Next steps
 

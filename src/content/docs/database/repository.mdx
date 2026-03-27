@@ -1,6 +1,6 @@
 ---
 title: "Repository"
-description: "Type-safe CRUD operations with the zzz_db repository pattern."
+description: "Type-safe CRUD operations with the pidgn_db repository pattern."
 ---
 
 import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
@@ -14,28 +14,28 @@ A `Repo` is generic over a backend and is initialized with a reference to a conn
 <Tabs>
 <TabItem label="SQLite">
 ```zig
-const zzz_db = @import("zzz_db");
+const pidgn_db = @import("pidgn_db");
 
-var pool = try zzz_db.SqlitePool.init(.{
+var pool = try pidgn_db.SqlitePool.init(.{
     .size = 5,
     .connection = .{ .database = "myapp.db" },
 });
 defer pool.deinit();
 
-var repo = zzz_db.SqliteRepo.init(&pool);
+var repo = pidgn_db.SqliteRepo.init(&pool);
 ```
 </TabItem>
 <TabItem label="PostgreSQL">
 ```zig
-const zzz_db = @import("zzz_db");
+const pidgn_db = @import("pidgn_db");
 
-var pool = try zzz_db.PgPool.init(.{
+var pool = try pidgn_db.PgPool.init(.{
     .size = 5,
     .connection = .{ .database = "postgresql://localhost/myapp" },
 });
 defer pool.deinit();
 
-var repo = zzz_db.PgRepo.init(&pool);
+var repo = pidgn_db.PgRepo.init(&pool);
 ```
 </TabItem>
 </Tabs>
@@ -54,7 +54,7 @@ pub const User = struct {
     inserted_at: i64 = 0,
     updated_at: i64 = 0,
 
-    pub const Meta = zzz_db.Schema.define(@This(), .{
+    pub const Meta = pidgn_db.Schema.define(@This(), .{
         .table = "users",
         .primary_key = "id",
         .timestamps = true,
@@ -74,7 +74,7 @@ var user = try repo.insert(User, .{
     .name = "Alice",
     .email = "alice@example.com",
 }, allocator);
-defer zzz_db.freeOne(User, &user, allocator);
+defer pidgn_db.freeOne(User, &user, allocator);
 
 // user.id is now set to the database-generated value
 ```
@@ -85,7 +85,7 @@ Fetches a single record by primary key. Returns `null` if no record is found.
 
 ```zig
 if (try repo.get(User, 42, allocator)) |*user| {
-    defer zzz_db.freeOne(User, user, allocator);
+    defer pidgn_db.freeOne(User, user, allocator);
     // use user
 } else {
     // not found
@@ -97,11 +97,11 @@ if (try repo.get(User, 42, allocator)) |*user| {
 Executes a query and returns the first matching row, or `null`. Automatically applies `LIMIT 1`.
 
 ```zig
-const query = zzz_db.Query(User).init()
+const query = pidgn_db.Query(User).init()
     .where("email", .eq, "alice@example.com");
 
 if (try repo.one(User, query, allocator)) |*user| {
-    defer zzz_db.freeOne(User, user, allocator);
+    defer pidgn_db.freeOne(User, user, allocator);
     // use user
 }
 ```
@@ -111,13 +111,13 @@ if (try repo.one(User, query, allocator)) |*user| {
 Executes a query and returns all matching rows as a slice.
 
 ```zig
-const query = zzz_db.Query(User).init()
+const query = pidgn_db.Query(User).init()
     .where("name", .like, "%alice%")
     .orderBy("inserted_at", .desc)
     .limit(20);
 
 const users = try repo.all(User, query, allocator);
-defer zzz_db.freeAll(User, users, allocator);
+defer pidgn_db.freeAll(User, users, allocator);
 
 for (users) |user| {
     // process each user
@@ -136,7 +136,7 @@ var updated = try repo.update(User, .{
     .inserted_at = user.inserted_at,
     .updated_at = std.time.timestamp(),
 }, allocator);
-defer zzz_db.freeOne(User, &updated, allocator);
+defer pidgn_db.freeOne(User, &updated, allocator);
 ```
 
 ### delete
@@ -162,7 +162,7 @@ try repo.delete(User, .{
 Counts records matching a query. Returns an `i64`.
 
 ```zig
-const query = zzz_db.Query(User).init()
+const query = pidgn_db.Query(User).init()
     .where("email", .like, "%@example.com");
 
 const total = try repo.count(User, query, allocator);
@@ -173,7 +173,7 @@ const total = try repo.count(User, query, allocator);
 Checks if any records match the query. Returns a `bool`.
 
 ```zig
-const query = zzz_db.Query(User).init()
+const query = pidgn_db.Query(User).init()
     .where("email", .eq, "alice@example.com");
 
 const found = try repo.exists(User, query, allocator);
@@ -184,7 +184,7 @@ const found = try repo.exists(User, query, allocator);
 Runs an aggregate function (`count`, `sum`, `avg`, `min`, `max`) on a field. Returns `?f64`.
 
 ```zig
-const query = zzz_db.Query(User).init();
+const query = pidgn_db.Query(User).init();
 
 const total_age = try repo.aggregate(User, query, .sum, "age", allocator);
 const avg_score = try repo.aggregate(User, query, .avg, "score", allocator);
@@ -204,7 +204,7 @@ const users = try repo.rawAll(
     &.{"%alice%"},
     allocator,
 );
-defer zzz_db.freeAll(User, users, allocator);
+defer pidgn_db.freeAll(User, users, allocator);
 ```
 
 ### rawOne
@@ -239,9 +239,9 @@ Load related records in a single query using `repo.preload()`. The parent schema
 
 ```zig
 // Fetch all users
-const query = zzz_db.Query(User).init().orderBy("id", .asc);
+const query = pidgn_db.Query(User).init().orderBy("id", .asc);
 const users = try repo.all(User, query, allocator);
-defer zzz_db.freeAll(User, users, allocator);
+defer pidgn_db.freeAll(User, users, allocator);
 
 // Preload posts for each user (returns [][]Post, parallel to users)
 const posts_by_user = try repo.preload(User, Post, "posts", users, allocator);
@@ -249,7 +249,7 @@ defer {
     for (posts_by_user) |posts| {
         for (posts) |*post| {
             var p = post.*;
-            zzz_db.freeOne(Post, &p, allocator);
+            pidgn_db.freeOne(Post, &p, allocator);
         }
         allocator.free(posts);
     }
@@ -284,34 +284,34 @@ The repo allocates memory for string fields (`[]const u8`) in returned structs. 
 
 | Return type | Free with                                   |
 | ----------- | ------------------------------------------- |
-| Single struct (`insert`, `get`, `one`, `update`) | `zzz_db.freeOne(T, &item, allocator)` |
-| Slice of structs (`all`, `rawAll`)               | `zzz_db.freeAll(T, items, allocator)` |
+| Single struct (`insert`, `get`, `one`, `update`) | `pidgn_db.freeOne(T, &item, allocator)` |
+| Slice of structs (`all`, `rawAll`)               | `pidgn_db.freeAll(T, items, allocator)` |
 | `rawExec` result                                 | `result.deinit()`                     |
 
 Always use `defer` for cleanup:
 
 ```zig
 var user = try repo.insert(User, .{ .id = 0, .name = "Alice", .email = "a@e.com" }, allocator);
-defer zzz_db.freeOne(User, &user, allocator);
+defer pidgn_db.freeOne(User, &user, allocator);
 ```
 
 ## Full example
 
-This example from the zzz example application shows a complete CRUD workflow in a web handler:
+This example from the pidgn example application shows a complete CRUD workflow in a web handler:
 
 ```zig
-const zzz_db = @import("zzz_db");
+const pidgn_db = @import("pidgn_db");
 
-fn dbDemo(ctx: *zzz.Context) !void {
-    const repo = zzz_db.SqliteRepo.init(&db_pool);
+fn dbDemo(ctx: *pidgn.Context) !void {
+    const repo = pidgn_db.SqliteRepo.init(&db_pool);
 
     // Query all users, ordered by newest first
-    const query = zzz_db.Query(DemoUser).init().orderBy("id", .desc);
+    const query = pidgn_db.Query(DemoUser).init().orderBy("id", .desc);
     const users = repo.all(DemoUser, query, ctx.allocator) catch {
         ctx.text(.internal_server_error, "Failed to load users");
         return;
     };
-    defer zzz_db.freeAll(DemoUser, users, ctx.allocator);
+    defer pidgn_db.freeAll(DemoUser, users, ctx.allocator);
 
     // Render template with results
     try ctx.renderWithLayout(AppLayout, DbDemoContent, .ok, .{
@@ -319,8 +319,8 @@ fn dbDemo(ctx: *zzz.Context) !void {
     });
 }
 
-fn dbAddUser(ctx: *zzz.Context) !void {
-    const repo = zzz_db.SqliteRepo.init(&db_pool);
+fn dbAddUser(ctx: *pidgn.Context) !void {
+    const repo = pidgn_db.SqliteRepo.init(&db_pool);
     const name = ctx.param("name") orelse "";
     const email = ctx.param("email") orelse "";
 
@@ -333,7 +333,7 @@ fn dbAddUser(ctx: *zzz.Context) !void {
             ctx.text(.internal_server_error, "Failed to insert user");
             return;
         };
-        zzz_db.freeOne(DemoUser, &inserted, ctx.allocator);
+        pidgn_db.freeOne(DemoUser, &inserted, ctx.allocator);
     }
 
     ctx.redirect("/db", .see_other);

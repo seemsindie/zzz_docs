@@ -1,11 +1,11 @@
 ---
 title: "Bearer and Basic Auth"
-description: "Configure bearer token and HTTP basic authentication middleware in zzz to protect routes and extract credentials."
+description: "Configure bearer token and HTTP basic authentication middleware in pidgn to protect routes and extract credentials."
 ---
 
 import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
 
-zzz provides two middleware functions for the most common HTTP authentication schemes: bearer tokens and basic auth. Both extract credentials from the `Authorization` header and store them in the context assigns map for downstream handlers to use.
+pidgn provides two middleware functions for the most common HTTP authentication schemes: bearer tokens and basic auth. Both extract credentials from the `Authorization` header and store them in the context assigns map for downstream handlers to use.
 
 ## Bearer token authentication
 
@@ -21,15 +21,15 @@ The `bearerAuth` middleware parses `Authorization: Bearer <token>` headers and p
 ### Basic usage
 
 ```zig
-const zzz = @import("zzz");
+const pidgn = @import("pidgn");
 
-const routes = zzz.Router.scope("/api", &.{
-    zzz.bearerAuth(.{ .required = true }),
+const routes = pidgn.Router.scope("/api", &.{
+    pidgn.bearerAuth(.{ .required = true }),
 }, &.{
-    zzz.Router.get("/profile", profileHandler),
+    pidgn.Router.get("/profile", profileHandler),
 });
 
-fn profileHandler(ctx: *zzz.Context) !void {
+fn profileHandler(ctx: *pidgn.Context) !void {
     const token = ctx.getAssign("bearer_token").?;
     // Validate `token` against your database or token store
     var buf: [256]u8 = undefined;
@@ -51,13 +51,13 @@ curl -H "Authorization: Bearer my-secret-token" http://127.0.0.1:9000/api/profil
 When `required = false` (the default), the middleware extracts the token if present but always calls `ctx.next()`. This is useful for routes that behave differently for authenticated vs anonymous users:
 
 ```zig
-const routes = zzz.Router.scope("/", &.{
-    zzz.bearerAuth(.{ .required = false }),
+const routes = pidgn.Router.scope("/", &.{
+    pidgn.bearerAuth(.{ .required = false }),
 }, &.{
-    zzz.Router.get("/feed", feedHandler),
+    pidgn.Router.get("/feed", feedHandler),
 });
 
-fn feedHandler(ctx: *zzz.Context) !void {
+fn feedHandler(ctx: *pidgn.Context) !void {
     if (ctx.getAssign("bearer_token")) |_token| {
         // Show personalized feed
         ctx.json(.ok, "{\"feed\":\"personalized\"}");
@@ -73,7 +73,7 @@ fn feedHandler(ctx: *zzz.Context) !void {
 If you need to avoid key collisions or prefer a different name:
 
 ```zig
-zzz.bearerAuth(.{
+pidgn.bearerAuth(.{
     .assign_key = "api_token",
     .required = true,
 })
@@ -97,15 +97,15 @@ The `basicAuth` middleware decodes `Authorization: Basic <base64>` headers, extr
 ### Basic usage
 
 ```zig
-const zzz = @import("zzz");
+const pidgn = @import("pidgn");
 
-const routes = zzz.Router.scope("/admin", &.{
-    zzz.basicAuth(.{ .required = true, .realm = "Admin Panel" }),
+const routes = pidgn.Router.scope("/admin", &.{
+    pidgn.basicAuth(.{ .required = true, .realm = "Admin Panel" }),
 }, &.{
-    zzz.Router.get("/dashboard", dashboardHandler),
+    pidgn.Router.get("/dashboard", dashboardHandler),
 });
 
-fn dashboardHandler(ctx: *zzz.Context) !void {
+fn dashboardHandler(ctx: *pidgn.Context) !void {
     const username = ctx.getAssign("auth_username").?;
     const password = ctx.getAssign("auth_password").?;
 
@@ -151,7 +151,7 @@ WWW-Authenticate: Basic realm="Admin Panel"
 </Steps>
 
 ```zig
-fn validateCredentials(ctx: *zzz.Context) !void {
+fn validateCredentials(ctx: *pidgn.Context) !void {
     const username = ctx.getAssign("auth_username") orelse {
         ctx.respond(.unauthorized, "text/plain; charset=utf-8", "401 Unauthorized");
         return;
@@ -180,22 +180,22 @@ Both bearer and basic auth are typically applied to specific route groups using 
 <Tabs>
 <TabItem label="Bearer scope">
 ```zig
-const api_routes = zzz.Router.scope("/api/v1", &.{
-    zzz.bearerAuth(.{ .required = true }),
+const api_routes = pidgn.Router.scope("/api/v1", &.{
+    pidgn.bearerAuth(.{ .required = true }),
 }, &.{
-    zzz.Router.get("/users", listUsers),
-    zzz.Router.get("/users/:id", getUser),
-    zzz.Router.post("/users", createUser),
+    pidgn.Router.get("/users", listUsers),
+    pidgn.Router.get("/users/:id", getUser),
+    pidgn.Router.post("/users", createUser),
 });
 ```
 </TabItem>
 <TabItem label="Basic scope">
 ```zig
-const admin_routes = zzz.Router.scope("/admin", &.{
-    zzz.basicAuth(.{ .required = true, .realm = "Admin" }),
+const admin_routes = pidgn.Router.scope("/admin", &.{
+    pidgn.basicAuth(.{ .required = true, .realm = "Admin" }),
 }, &.{
-    zzz.Router.get("/", adminDashboard),
-    zzz.Router.get("/users", adminUsers),
+    pidgn.Router.get("/", adminDashboard),
+    pidgn.Router.get("/users", adminUsers),
 });
 ```
 </TabItem>
@@ -208,12 +208,12 @@ You can use different auth strategies on different scopes within the same applic
 ```zig
 const routes =
     // API uses bearer tokens
-    zzz.Router.scope("/api", &.{zzz.bearerAuth(.{ .required = true })}, &.{
-        zzz.Router.get("/data", apiDataHandler),
+    pidgn.Router.scope("/api", &.{pidgn.bearerAuth(.{ .required = true })}, &.{
+        pidgn.Router.get("/data", apiDataHandler),
     })
     // Admin uses basic auth
-    ++ zzz.Router.scope("/admin", &.{zzz.basicAuth(.{ .required = true })}, &.{
-        zzz.Router.get("/", adminHandler),
+    ++ pidgn.Router.scope("/admin", &.{pidgn.basicAuth(.{ .required = true })}, &.{
+        pidgn.Router.get("/", adminHandler),
     });
 ```
 

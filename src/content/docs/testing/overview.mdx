@@ -1,43 +1,43 @@
 ---
 title: "Testing Overview"
-description: "Overview of testing utilities in the zzz ecosystem for HTTP, WebSocket, and database testing."
+description: "Overview of testing utilities in the pidgn ecosystem for HTTP, WebSocket, and database testing."
 ---
 
 import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
 
-zzz ships a dedicated testing module that lets you exercise your application without starting a real server or opening network connections. The testing utilities cover three areas:
+pidgn ships a dedicated testing module that lets you exercise your application without starting a real server or opening network connections. The testing utilities cover three areas:
 
 - **HTTP test client** -- send requests through your router and assert on responses, headers, cookies, and JSON bodies.
 - **WebSocket test channel** -- join topics, push events, and inspect messages without a TCP connection.
 - **Database sandbox** -- wrap each test in a transaction that rolls back automatically, plus factories for creating test records.
 
-All testing utilities live under `zzz.testing` and are designed to work with Zig's built-in `test` blocks and `std.testing`.
+All testing utilities live under `pidgn.testing` and are designed to work with Zig's built-in `test` blocks and `std.testing`.
 
 ## What the testing module provides
 
 | Utility | Import | Purpose |
 |---|---|---|
-| `TestClient` | `zzz.testing.TestClient` | HTTP request/response testing against your router |
-| `TestResponse` | `zzz.testing.TestResponse` | Response wrapper with assertion methods |
-| `RequestBuilder` | `zzz.testing.RequestBuilder` | Chainable builder for complex requests |
-| `CookieJar` | `zzz.testing.CookieJar` | Automatic cookie persistence across requests |
-| `MultipartPart` | `zzz.testing.MultipartPart` | Multipart/form-data body construction |
-| `TestChannel` | `zzz.testing.TestChannel` | WebSocket channel testing |
-| `TestSandbox` | `zzz_db.testing.TestSandbox` | Transaction-based database isolation |
-| `Factory` | `zzz_db.testing.Factory` | Test record creation with defaults and overrides |
+| `TestClient` | `pidgn.testing.TestClient` | HTTP request/response testing against your router |
+| `TestResponse` | `pidgn.testing.TestResponse` | Response wrapper with assertion methods |
+| `RequestBuilder` | `pidgn.testing.RequestBuilder` | Chainable builder for complex requests |
+| `CookieJar` | `pidgn.testing.CookieJar` | Automatic cookie persistence across requests |
+| `MultipartPart` | `pidgn.testing.MultipartPart` | Multipart/form-data body construction |
+| `TestChannel` | `pidgn.testing.TestChannel` | WebSocket channel testing |
+| `TestSandbox` | `pidgn_db.testing.TestSandbox` | Transaction-based database isolation |
+| `Factory` | `pidgn_db.testing.Factory` | Test record creation with defaults and overrides |
 
 ## Setting up tests
 
-zzz tests run with `zig build test`. No external test runner or server process is needed -- the test client calls your router's handler function directly.
+pidgn tests run with `zig build test`. No external test runner or server process is needed -- the test client calls your router's handler function directly.
 
 <Steps>
 
 1. **Define your router** as you would in your application:
 
    ```zig
-   const zzz = @import("zzz");
-   const Router = zzz.Router;
-   const Context = zzz.Context;
+   const pidgn = @import("pidgn");
+   const Router = pidgn.Router;
+   const Context = pidgn.Context;
 
    const App = Router.define(.{
        .routes = &.{
@@ -56,7 +56,7 @@ zzz tests run with `zig build test`. No external test runner or server process i
    const std = @import("std");
 
    test "homepage returns hello" {
-       var client = zzz.testing.TestClient(App).init(std.testing.allocator);
+       var client = pidgn.testing.TestClient(App).init(std.testing.allocator);
        defer client.deinit();
 
        const resp = try client.get("/");
@@ -85,9 +85,9 @@ This means your tests run at full speed with no I/O overhead, while exercising t
 
 ```zig
 const std = @import("std");
-const zzz = @import("zzz");
-const Router = zzz.Router;
-const Context = zzz.Context;
+const pidgn = @import("pidgn");
+const Router = pidgn.Router;
+const Context = pidgn.Context;
 
 const App = Router.define(.{
     .routes = &.{
@@ -116,7 +116,7 @@ const App = Router.define(.{
 });
 
 test "full login flow" {
-    var client = zzz.testing.TestClient(App).init(std.testing.allocator);
+    var client = pidgn.testing.TestClient(App).init(std.testing.allocator);
     defer client.deinit();
 
     // Verify homepage

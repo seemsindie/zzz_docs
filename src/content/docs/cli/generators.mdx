@@ -1,16 +1,16 @@
 ---
 title: Code Generators
-description: Use zzz gen to generate controllers, models, channels, and mailers from the command line.
+description: Use pidgn gen to generate controllers, models, channels, and mailers from the command line.
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-The `zzz gen` command (short for `zzz generate`) creates boilerplate code from built-in templates. It supports four generator types: controllers, models, channels, and mailers.
+The `pidgn gen` command (short for `pidgn generate`) creates boilerplate code from built-in templates. It supports four generator types: controllers, models, channels, and mailers.
 
 ## Usage
 
 ```bash
-zzz gen <type> <Name> [options...]
+pidgn gen <type> <Name> [options...]
 ```
 
 The `<Name>` argument is case-sensitive. By convention, pass it in PascalCase (e.g., `Users`, `BlogPost`). The CLI converts it to lowercase for file names.
@@ -20,7 +20,7 @@ The `<Name>` argument is case-sensitive. By convention, pass it in PascalCase (e
 ### Controller
 
 ```bash
-zzz gen controller <Name>
+pidgn gen controller <Name>
 ```
 
 Generates a RESTful controller at `src/controllers/<name>.zig` with five actions: `index`, `show`, `create`, `update`, and `delete_handler`. The file also exports a `routes` constant that maps these actions to standard REST paths using `Router.resource`.
@@ -28,7 +28,7 @@ Generates a RESTful controller at `src/controllers/<name>.zig` with five actions
 **Example:**
 
 ```bash
-zzz gen controller Users
+pidgn gen controller Users
 # Generated: src/controllers/users.zig
 ```
 
@@ -36,9 +36,9 @@ zzz gen controller Users
 
 ```zig
 const std = @import("std");
-const zzz = @import("zzz");
-const Context = zzz.Context;
-const Router = zzz.Router;
+const pidgn = @import("pidgn");
+const Context = pidgn.Context;
+const Router = pidgn.Router;
 
 // Users Controller
 
@@ -88,7 +88,7 @@ const App = Router.define(.{
 ### Model
 
 ```bash
-zzz gen model <Name> [field:type ...]
+pidgn gen model <Name> [field:type ...]
 ```
 
 Generates two files:
@@ -111,7 +111,7 @@ Every model automatically includes `id`, `inserted_at`, and `updated_at` fields.
 **Example:**
 
 ```bash
-zzz gen model Post title:string body:text user_id:integer published:boolean
+pidgn gen model Post title:string body:text user_id:integer published:boolean
 # Generated: src/post.zig
 # Generated: priv/migrations/001_create_post.zig
 ```
@@ -119,7 +119,7 @@ zzz gen model Post title:string body:text user_id:integer published:boolean
 **Generated schema (`src/post.zig`):**
 
 ```zig
-const schema = @import("zzz_db").Schema;
+const schema = @import("pidgn_db").Schema;
 
 /// Post schema definition.
 pub const Post = struct {
@@ -142,7 +142,7 @@ pub const Post = struct {
 **Generated migration (`priv/migrations/001_create_post.zig`):**
 
 ```zig
-const MigrationContext = @import("zzz_db").MigrationContext;
+const MigrationContext = @import("pidgn_db").MigrationContext;
 
 pub fn up(ctx: *MigrationContext) !void {
     try ctx.createTable("post", &.{
@@ -164,7 +164,7 @@ pub fn down(ctx: *MigrationContext) !void {
 ### Channel
 
 ```bash
-zzz gen channel <Name>
+pidgn gen channel <Name>
 ```
 
 Generates a WebSocket channel at `src/channels/<name>.zig` with a join handler and a message broadcast handler.
@@ -172,7 +172,7 @@ Generates a WebSocket channel at `src/channels/<name>.zig` with a join handler a
 **Example:**
 
 ```bash
-zzz gen channel Chat
+pidgn gen channel Chat
 # Generated: src/channels/chat.zig
 ```
 
@@ -180,10 +180,10 @@ zzz gen channel Chat
 
 ```zig
 const std = @import("std");
-const zzz = @import("zzz");
-const Socket = zzz.Socket;
-const ChannelDef = zzz.ChannelDef;
-const JoinResult = zzz.JoinResult;
+const pidgn = @import("pidgn");
+const Socket = pidgn.Socket;
+const ChannelDef = pidgn.ChannelDef;
+const JoinResult = pidgn.JoinResult;
 
 // Chat Channel
 
@@ -211,16 +211,16 @@ The `topic_pattern` uses a wildcard (`chat:*`) so clients can join topic-specifi
 ### Mailer
 
 ```bash
-zzz gen mailer <Name>
-zzz gen mailer <Name> --template
+pidgn gen mailer <Name>
+pidgn gen mailer <Name> --template
 ```
 
 Generates a mailer module at `src/mailers/<name>.zig` with a `build` function that constructs an `Email` struct.
 
 Without `--template`, the email body is defined inline in Zig code. With `--template`, the generator creates separate template files:
 
-- `src/mailers/templates/<name>.html.zzz` -- HTML email template
-- `src/mailers/templates/<name>.txt.zzz` -- plain-text email template
+- `src/mailers/templates/<name>.html.pidgn` -- HTML email template
+- `src/mailers/templates/<name>.txt.pidgn` -- plain-text email template
 
 The mailer module uses `@embedFile` to load these templates at compile time.
 
@@ -229,16 +229,16 @@ The mailer module uses `@embedFile` to load these templates at compile time.
 <Tabs>
   <TabItem label="Inline">
     ```bash
-    zzz gen mailer Welcome
+    pidgn gen mailer Welcome
     # Generated: src/mailers/welcome.zig
     ```
   </TabItem>
   <TabItem label="With templates">
     ```bash
-    zzz gen mailer Welcome --template
+    pidgn gen mailer Welcome --template
     # Generated: src/mailers/welcome.zig
-    # Generated: src/mailers/templates/welcome.html.zzz
-    # Generated: src/mailers/templates/welcome.txt.zzz
+    # Generated: src/mailers/templates/welcome.html.pidgn
+    # Generated: src/mailers/templates/welcome.txt.pidgn
     ```
   </TabItem>
 </Tabs>

@@ -1,6 +1,6 @@
 ---
 title: "JWT Authentication"
-description: "Verify JSON Web Tokens with HMAC-SHA256 in zzz, extract claims, and protect routes with JWT middleware."
+description: "Verify JSON Web Tokens with HMAC-SHA256 in pidgn, extract claims, and protect routes with JWT middleware."
 ---
 
 import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
@@ -28,15 +28,15 @@ The `jwtAuth` middleware verifies JSON Web Tokens (JWT) signed with HMAC-SHA256.
 </Steps>
 
 ```zig
-const zzz = @import("zzz");
+const pidgn = @import("pidgn");
 
-const routes = zzz.Router.scope("/api", &.{
-    zzz.jwtAuth(.{ .secret = "my-hmac-secret", .required = true }),
+const routes = pidgn.Router.scope("/api", &.{
+    pidgn.jwtAuth(.{ .secret = "my-hmac-secret", .required = true }),
 }, &.{
-    zzz.Router.get("/me", meHandler),
+    pidgn.Router.get("/me", meHandler),
 });
 
-fn meHandler(ctx: *zzz.Context) !void {
+fn meHandler(ctx: *pidgn.Context) !void {
     const payload = ctx.getAssign("jwt_payload").?;
     // payload is the raw JSON string, e.g. {"sub":"1234","name":"Alice"}
     var buf: [512]u8 = undefined;
@@ -75,7 +75,7 @@ The middleware supports both standard base64 and base64url encoding, with or wit
 
 ## Token format
 
-zzz expects standard JWT format with three dot-separated segments:
+pidgn expects standard JWT format with three dot-separated segments:
 
 ```
 eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0IiwibmFtZSI6IkFsaWNlIn0.<signature>
@@ -92,7 +92,7 @@ The JWT payload is stored as a raw JSON string. To work with individual claims, 
 <Tabs>
 <TabItem label="String matching">
 ```zig
-fn handler(ctx: *zzz.Context) !void {
+fn handler(ctx: *pidgn.Context) !void {
     const payload = ctx.getAssign("jwt_payload") orelse {
         ctx.text(.unauthorized, "No token");
         return;
@@ -111,7 +111,7 @@ fn handler(ctx: *zzz.Context) !void {
 ```zig
 const std = @import("std");
 
-fn handler(ctx: *zzz.Context) !void {
+fn handler(ctx: *pidgn.Context) !void {
     const payload = ctx.getAssign("jwt_payload") orelse {
         ctx.text(.unauthorized, "No token");
         return;
@@ -140,13 +140,13 @@ fn handler(ctx: *zzz.Context) !void {
 
 ## Generating tokens
 
-zzz does not include a JWT generation function -- it is a verification-only middleware. You can generate tokens in your login handler using the standard library's HMAC implementation:
+pidgn does not include a JWT generation function -- it is a verification-only middleware. You can generate tokens in your login handler using the standard library's HMAC implementation:
 
 ```zig
 const std = @import("std");
-const zzz = @import("zzz");
+const pidgn = @import("pidgn");
 
-fn loginHandler(ctx: *zzz.Context) !void {
+fn loginHandler(ctx: *pidgn.Context) !void {
     // After validating user credentials...
 
     const header_b64 = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9";
@@ -193,13 +193,13 @@ The `secret` field is a comptime value. For production applications, you can loa
 ```zig
 const app_config = @import("app_config");
 
-const routes = zzz.Router.scope("/api", &.{
-    zzz.jwtAuth(.{
+const routes = pidgn.Router.scope("/api", &.{
+    pidgn.jwtAuth(.{
         .secret = app_config.jwt_secret,
         .required = true,
     }),
 }, &.{
-    zzz.Router.get("/protected", protectedHandler),
+    pidgn.Router.get("/protected", protectedHandler),
 });
 ```
 

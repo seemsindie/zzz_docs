@@ -1,18 +1,18 @@
 ---
 title: "Queues and Stores"
-description: "How zzz_jobs storage backends work, choosing between MemoryStore and DbStore, configuring queue priorities, and implementing custom stores."
+description: "How pidgn_jobs storage backends work, choosing between MemoryStore and DbStore, configuring queue priorities, and implementing custom stores."
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-zzz_jobs uses a **store** to persist job state. The store handles enqueueing, claiming, completing, failing, and rescuing jobs. Two built-in stores are provided: `MemoryStore` for in-process operation and `DbStore` for durable persistence via SQLite or PostgreSQL.
+pidgn_jobs uses a **store** to persist job state. The store handles enqueueing, claiming, completing, failing, and rescuing jobs. Two built-in stores are provided: `MemoryStore` for in-process operation and `DbStore` for durable persistence via SQLite or PostgreSQL.
 
 ## Choosing a store
 
 | Feature | MemoryStore | DbStore (SQLite) | DbStore (PostgreSQL) |
 |---|---|---|---|
 | Persistence | None (process lifetime) | Disk | Disk / network |
-| Dependencies | None | zzz_db + SQLite | zzz_db + libpq |
+| Dependencies | None | pidgn_db + SQLite | pidgn_db + libpq |
 | Multi-process safe | No | Single-writer | Yes |
 | Max jobs | 4,096 (compile-time) | Unlimited | Unlimited |
 | Best for | Tests, dev, single-process | Single-server production | Multi-server production |
@@ -22,9 +22,9 @@ zzz_jobs uses a **store** to persist job state. The store handles enqueueing, cl
 The `MemoryStore` keeps all jobs in a fixed-size array within the process. It requires no external dependencies and is ideal for testing, prototyping, and applications where job durability is not critical.
 
 ```zig
-const zzz_jobs = @import("zzz_jobs");
+const pidgn_jobs = @import("pidgn_jobs");
 
-var supervisor = try zzz_jobs.MemorySupervisor.init(.{}, .{
+var supervisor = try pidgn_jobs.MemorySupervisor.init(.{}, .{
     .queues = &.{.{ .name = "default", .concurrency = 10 }},
     .poll_interval_ms = 1000,
 });
@@ -54,24 +54,24 @@ const deleted = try supervisor.store.deleteCompleted(older_than_timestamp);
 
 ## DbStore
 
-`DbStore` is a generic store parameterized over a database backend from zzz_db. It stores jobs in a `zzz_jobs` SQL table and is suitable for production deployments where jobs must survive process restarts.
+`DbStore` is a generic store parameterized over a database backend from pidgn_db. It stores jobs in a `pidgn_jobs` SQL table and is suitable for production deployments where jobs must survive process restarts.
 
 <Tabs>
 <TabItem label="SQLite">
 
 ```zig
-const zzz_jobs = @import("zzz_jobs");
-const zzz_db = @import("zzz_db");
+const pidgn_jobs = @import("pidgn_jobs");
+const pidgn_db = @import("pidgn_db");
 
 // Create a connection pool
-var pool = try zzz_db.Pool(zzz_db.sqlite).init(.{
+var pool = try pidgn_db.Pool(pidgn_db.sqlite).init(.{
     .size = 5,
     .connection = .{ .database = "myapp.db" },
 });
 defer pool.deinit();
 
 // Initialize the supervisor with the SQLite store
-var supervisor = try zzz_jobs.SqliteSupervisor.init(
+var supervisor = try pidgn_jobs.SqliteSupervisor.init(
     .{ .pool = &pool },
     .{
         .queues = &.{.{ .name = "default", .concurrency = 5 }},
@@ -85,10 +85,10 @@ defer supervisor.deinit();
 <TabItem label="PostgreSQL">
 
 ```zig
-const zzz_jobs = @import("zzz_jobs");
-const zzz_db = @import("zzz_db");
+const pidgn_jobs = @import("pidgn_jobs");
+const pidgn_db = @import("pidgn_db");
 
-var pool = try zzz_db.Pool(zzz_db.postgres).init(.{
+var pool = try pidgn_db.Pool(pidgn_db.postgres).init(.{
     .size = 10,
     .connection = .{
         .host = "localhost",
@@ -100,7 +100,7 @@ var pool = try zzz_db.Pool(zzz_db.postgres).init(.{
 });
 defer pool.deinit();
 
-var supervisor = try zzz_jobs.PgSupervisor.init(
+var supervisor = try pidgn_jobs.PgSupervisor.init(
     .{ .pool = &pool },
     .{
         .queues = &.{.{ .name = "default", .concurrency = 10 }},
@@ -115,10 +115,10 @@ defer supervisor.deinit();
 
 ### Auto-created schema
 
-When a `DbStore` is initialized, it automatically creates the `zzz_jobs` table and a claim index if they do not already exist:
+When a `DbStore` is initialized, it automatically creates the `pidgn_jobs` table and a claim index if they do not already exist:
 
 ```sql
-CREATE TABLE IF NOT EXISTS zzz_jobs (
+CREATE TABLE IF NOT EXISTS pidgn_jobs (
     id INTEGER PRIMARY KEY AUTOINCREMENT, -- BIGSERIAL for PostgreSQL
     state INTEGER NOT NULL DEFAULT 0,
     queue TEXT NOT NULL DEFAULT 'default',
@@ -135,8 +135,8 @@ CREATE TABLE IF NOT EXISTS zzz_jobs (
     unique_key TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_zzz_jobs_claim
-    ON zzz_jobs (queue, state, scheduled_at, priority);
+CREATE INDEX IF NOT EXISTS idx_pidgn_jobs_claim
+    ON pidgn_jobs (queue, state, scheduled_at, priority);
 ```
 
 ### Build flags
@@ -184,7 +184,7 @@ The `priority` field is a signed 32-bit integer. Lower values are processed befo
 You can configure multiple named queues with independent concurrency levels:
 
 ```zig
-var supervisor = try zzz_jobs.MemorySupervisor.init(.{}, .{
+var supervisor = try pidgn_jobs.MemorySupervisor.init(.{}, .{
     .queues = &.{
         .{ .name = "critical", .concurrency = 5 },
         .{ .name = "default", .concurrency = 10 },

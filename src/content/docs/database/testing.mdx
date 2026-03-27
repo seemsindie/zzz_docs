@@ -5,7 +5,7 @@ description: "Test database code with sandboxes, factories, and seed data."
 
 import { Steps } from '@astrojs/starlight/components';
 
-zzz_db provides three testing utilities: `TestSandbox` for transaction-based test isolation, `Factory` for generating test records with overridable defaults, and `seed` for bulk-inserting known data. Together they make database tests fast, repeatable, and independent.
+pidgn_db provides three testing utilities: `TestSandbox` for transaction-based test isolation, `Factory` for generating test records with overridable defaults, and `seed` for bulk-inserting known data. Together they make database tests fast, repeatable, and independent.
 
 ## TestSandbox
 
@@ -14,12 +14,12 @@ zzz_db provides three testing utilities: `TestSandbox` for transaction-based tes
 ### Basic usage
 
 ```zig
-const zzz_db = @import("zzz_db");
-const sqlite = zzz_db.sqlite;
-const TestSandbox = zzz_db.TestSandbox(sqlite);
+const pidgn_db = @import("pidgn_db");
+const sqlite = pidgn_db.sqlite;
+const TestSandbox = pidgn_db.TestSandbox(sqlite);
 
 test "user creation" {
-    var conn = try zzz_db.Connection(sqlite).open(.{});
+    var conn = try pidgn_db.Connection(sqlite).open(.{});
     defer conn.close();
 
     // Set up schema (or run migrations) before the sandbox
@@ -41,7 +41,7 @@ test "user creation" {
 
 ### How it works
 
-`TestSandbox` calls `Transaction.begin` on the connection when created and `Transaction.rollback` when you call `rollback()`. Since zzz_db transactions support savepoints, you can even use transactions inside the sandbox -- they become nested savepoints.
+`TestSandbox` calls `Transaction.begin` on the connection when created and `Transaction.rollback` when you call `rollback()`. Since pidgn_db transactions support savepoints, you can even use transactions inside the sandbox -- they become nested savepoints.
 
 | Method | Description |
 |---|---|
@@ -55,7 +55,7 @@ If your code requires a connection pool, you can check out a connection first an
 
 ```zig
 test "repository operations" {
-    var pool = try zzz_db.Pool(sqlite).init(.{ .size = 1 });
+    var pool = try pidgn_db.Pool(sqlite).init(.{ .size = 1 });
     defer pool.deinit();
 
     var pc = try pool.checkout();
@@ -79,9 +79,9 @@ test "repository operations" {
 ### Setup
 
 ```zig
-const zzz_db = @import("zzz_db");
-const sqlite = zzz_db.sqlite;
-const Factory = zzz_db.Factory;
+const pidgn_db = @import("pidgn_db");
+const sqlite = pidgn_db.sqlite;
+const Factory = pidgn_db.Factory;
 
 const User = struct {
     id: i64,
@@ -90,7 +90,7 @@ const User = struct {
     inserted_at: i64 = 0,
     updated_at: i64 = 0,
 
-    pub const Meta = zzz_db.Schema.define(@This(), .{
+    pub const Meta = pidgn_db.Schema.define(@This(), .{
         .table = "users",
         .primary_key = "id",
         .timestamps = true,
@@ -103,7 +103,7 @@ const User = struct {
 ```zig
 var factory = Factory(sqlite, User).init(&pool);
 var user = try factory.create(.{ .name = "Alice", .email = "alice@example.com" }, allocator);
-defer zzz_db.freeOne(User, &user, allocator);
+defer pidgn_db.freeOne(User, &user, allocator);
 
 // user.id is set by the database (auto-increment)
 // user.name == "Alice"
@@ -122,7 +122,7 @@ The `create` method:
 const users = try factory.createMany(5, .{ .name = "User", .email = "user@example.com" }, allocator);
 defer {
     for (users) |*u| {
-        zzz_db.freeOne(User, u, allocator);
+        pidgn_db.freeOne(User, u, allocator);
     }
     allocator.free(users);
 }
@@ -148,12 +148,12 @@ defer {
 The `seed` function bulk-inserts a slice of records. Use it to populate lookup tables or set up baseline data for integration tests.
 
 ```zig
-const zzz_db = @import("zzz_db");
-const sqlite = zzz_db.sqlite;
+const pidgn_db = @import("pidgn_db");
+const sqlite = pidgn_db.sqlite;
 
-var repo = zzz_db.Repo(sqlite).init(&pool);
+var repo = pidgn_db.Repo(sqlite).init(&pool);
 
-try zzz_db.seed(sqlite, User, &repo, &.{
+try pidgn_db.seed(sqlite, User, &repo, &.{
     .{ .id = 0, .name = "Alice", .email = "alice@example.com" },
     .{ .id = 0, .name = "Bob", .email = "bob@example.com" },
     .{ .id = 0, .name = "Charlie", .email = "charlie@example.com" },
@@ -168,8 +168,8 @@ Here is a complete test that combines all three utilities:
 
 ```zig
 const std = @import("std");
-const zzz_db = @import("zzz_db");
-const sqlite = zzz_db.sqlite;
+const pidgn_db = @import("pidgn_db");
+const sqlite = pidgn_db.sqlite;
 
 const User = struct {
     id: i64,
@@ -178,7 +178,7 @@ const User = struct {
     inserted_at: i64 = 0,
     updated_at: i64 = 0,
 
-    pub const Meta = zzz_db.Schema.define(@This(), .{
+    pub const Meta = pidgn_db.Schema.define(@This(), .{
         .table = "users",
         .primary_key = "id",
         .timestamps = true,
@@ -187,7 +187,7 @@ const User = struct {
 
 test "full database test example" {
     // 1. Set up pool and schema
-    var pool = try zzz_db.Pool(sqlite).init(.{ .size = 1 });
+    var pool = try pidgn_db.Pool(sqlite).init(.{ .size = 1 });
     defer pool.deinit();
 
     var pc = try pool.checkout();
@@ -197,25 +197,25 @@ test "full database test example" {
     // 2. Wrap in sandbox for isolation
     var pc2 = try pool.checkout();
     defer pc2.release();
-    var sandbox = try zzz_db.TestSandbox(sqlite).begin(pc2.conn);
+    var sandbox = try pidgn_db.TestSandbox(sqlite).begin(pc2.conn);
     defer sandbox.rollback();
 
     // 3. Seed baseline data
-    var repo = zzz_db.Repo(sqlite).init(&pool);
-    try zzz_db.seed(sqlite, User, &repo, &.{
+    var repo = pidgn_db.Repo(sqlite).init(&pool);
+    try pidgn_db.seed(sqlite, User, &repo, &.{
         .{ .id = 0, .name = "Admin", .email = "admin@example.com" },
     }, std.testing.allocator);
 
     // 4. Use factory for test-specific data
-    var factory = zzz_db.Factory(sqlite, User).init(&pool);
+    var factory = pidgn_db.Factory(sqlite, User).init(&pool);
     var user = try factory.create(.{
         .name = "TestUser",
         .email = "test@example.com",
     }, std.testing.allocator);
-    defer zzz_db.freeOne(User, &user, std.testing.allocator);
+    defer pidgn_db.freeOne(User, &user, std.testing.allocator);
 
     // 5. Assert
-    const q = zzz_db.Query(User).init();
+    const q = pidgn_db.Query(User).init();
     const count = try repo.count(User, q, std.testing.allocator);
     try std.testing.expectEqual(@as(i64, 2), count);
 }
@@ -233,7 +233,7 @@ test "full database test example" {
    try conn.exec(User.Meta.create_table);
 
    // Option B: Run migrations
-   const runner = zzz_db.Runner(sqlite).init(&pool);
+   const runner = pidgn_db.Runner(sqlite).init(&pool);
    _ = try runner.migrate(&migrations, std.testing.allocator);
    ```
 

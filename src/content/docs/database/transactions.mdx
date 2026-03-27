@@ -5,16 +5,16 @@ description: "Database transactions with nested savepoints and isolation levels.
 
 import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
 
-zzz_db provides a `Transaction` API with begin/commit/rollback, automatic nested transactions via savepoints, configurable isolation levels, and a convenience `run` function that handles commit/rollback lifecycle for you.
+pidgn_db provides a `Transaction` API with begin/commit/rollback, automatic nested transactions via savepoints, configurable isolation levels, and a convenience `run` function that handles commit/rollback lifecycle for you.
 
 ## Basic transactions
 
-The `Transaction` type is parameterized by backend, just like other zzz_db types. All methods are static functions that operate on a connection.
+The `Transaction` type is parameterized by backend, just like other pidgn_db types. All methods are static functions that operate on a connection.
 
 ```zig
-const zzz_db = @import("zzz_db");
-const sqlite = zzz_db.sqlite;
-const Txn = zzz_db.Transaction(sqlite);
+const pidgn_db = @import("pidgn_db");
+const sqlite = pidgn_db.sqlite;
+const Txn = pidgn_db.Transaction(sqlite);
 ```
 
 ### Begin, commit, and rollback
@@ -68,8 +68,8 @@ If either `UPDATE` fails, the `errdefer` triggers a rollback and neither change 
 For the common pattern of "check out a connection, begin, do work, commit or rollback," use `Transaction.run`. It handles the full lifecycle:
 
 ```zig
-const Txn = zzz_db.Transaction(sqlite);
-const Conn = zzz_db.Connection(sqlite);
+const Txn = pidgn_db.Transaction(sqlite);
+const Conn = pidgn_db.Connection(sqlite);
 
 try Txn.run(&pool, &struct {
     fn func(conn: *Conn) !void {
@@ -90,7 +90,7 @@ If your function returns an error, `run` propagates it after rolling back.
 
 ## Nested transactions (savepoints)
 
-When you call `begin` on a connection that is already in a transaction, zzz_db creates a savepoint instead of a real transaction. This allows nesting without database-level conflicts.
+When you call `begin` on a connection that is already in a transaction, pidgn_db creates a savepoint instead of a real transaction. This allows nesting without database-level conflicts.
 
 ```zig
 try Txn.begin(&conn);             // Real BEGIN

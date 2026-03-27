@@ -5,14 +5,14 @@ description: "Define relationships between database schemas and query them with 
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-zzz_db is not an ORM with ActiveRecord-style eager loading or lazy-loaded association proxies. Instead, it provides two complementary features: **association metadata** declared on schemas, and a **query builder with join support**. You define relationships declaratively in your schema and use explicit joins when you need related data.
+pidgn_db is not an ORM with ActiveRecord-style eager loading or lazy-loaded association proxies. Instead, it provides two complementary features: **association metadata** declared on schemas, and a **query builder with join support**. You define relationships declaratively in your schema and use explicit joins when you need related data.
 
 ## Declaring associations in schemas
 
 Associations are defined as part of the `Schema.define` options via the `associations` field. This metadata is available at compile time for code generation, documentation, and tooling -- but it does not automatically generate queries or load related records.
 
 ```zig
-const zzz_db = @import("zzz_db");
+const pidgn_db = @import("pidgn_db");
 
 pub const User = struct {
     id: i64,
@@ -21,7 +21,7 @@ pub const User = struct {
     inserted_at: i64 = 0,
     updated_at: i64 = 0,
 
-    pub const Meta = zzz_db.Schema.define(@This(), .{
+    pub const Meta = pidgn_db.Schema.define(@This(), .{
         .table = "users",
         .primary_key = "id",
         .timestamps = true,
@@ -39,7 +39,7 @@ pub const Post = struct {
     inserted_at: i64 = 0,
     updated_at: i64 = 0,
 
-    pub const Meta = zzz_db.Schema.define(@This(), .{
+    pub const Meta = pidgn_db.Schema.define(@This(), .{
         .table = "posts",
         .primary_key = "id",
         .timestamps = true,
@@ -78,7 +78,7 @@ pub const Article = struct {
     id: i64,
     title: []const u8,
 
-    pub const Meta = zzz_db.Schema.define(@This(), .{
+    pub const Meta = pidgn_db.Schema.define(@This(), .{
         .table = "articles",
         .primary_key = "id",
         .timestamps = false,
@@ -119,14 +119,14 @@ This metadata is useful for building generic code, generating documentation, or 
 
 ## Querying related data with joins
 
-To actually fetch related data, use the query builder's join methods. zzz_db does not auto-generate join queries from association metadata -- you write explicit joins.
+To actually fetch related data, use the query builder's join methods. pidgn_db does not auto-generate join queries from association metadata -- you write explicit joins.
 
 ### Inner join
 
 Fetch only records that have a matching row in the joined table:
 
 ```zig
-const q = zzz_db.Query(User).init()
+const q = pidgn_db.Query(User).init()
     .select("users.*, posts.title")
     .innerJoin("posts", "users.id", "posts.user_id");
 
@@ -138,7 +138,7 @@ const results = try repo.all(User, q, allocator);
 Include all records from the primary table, with `NULL` for unmatched joins:
 
 ```zig
-const q = zzz_db.Query(User).init()
+const q = pidgn_db.Query(User).init()
     .select("users.*, orders.total")
     .leftJoin("orders", "users.id", "orders.user_id")
     .where("orders.total", .gt, "100");
@@ -151,7 +151,7 @@ const results = try repo.all(User, q, allocator);
 Use the `join` method directly to specify any join type:
 
 ```zig
-const q = zzz_db.Query(User).init()
+const q = pidgn_db.Query(User).init()
     .join(.full, "profiles", "users.id", "profiles.user_id");
 ```
 
@@ -162,7 +162,7 @@ Available join types: `.inner`, `.left`, `.right`, `.full`.
 Combine joins with `groupBy` and `having` to compute aggregate values across related records:
 
 ```zig
-const q = zzz_db.Query(User).init()
+const q = pidgn_db.Query(User).init()
     .select("users.name, COUNT(posts.id) as post_count")
     .innerJoin("posts", "users.id", "posts.user_id")
     .groupBy("users.name")
@@ -176,7 +176,7 @@ const results = try repo.all(User, q, allocator);
 For many-to-many relationships, chain two joins through the join table:
 
 ```zig
-const q = zzz_db.Query(Article).init()
+const q = pidgn_db.Query(Article).init()
     .select("articles.*, tags.name as tag_name")
     .innerJoin("article_tags", "articles.id", "article_tags.article_id")
     .innerJoin("tags", "article_tags.tag_id", "tags.id");
@@ -220,7 +220,7 @@ Association metadata is declarative only. You still need to create the actual fo
 
 ## Design rationale
 
-zzz_db intentionally avoids implicit loading of associated records. This design:
+pidgn_db intentionally avoids implicit loading of associated records. This design:
 
 - Keeps queries explicit and predictable -- you always know exactly what SQL runs
 - Avoids the N+1 query problem by requiring explicit joins
