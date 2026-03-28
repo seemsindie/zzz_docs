@@ -235,7 +235,7 @@ const BlogPost = pidgn.template(@embedFile("../templates/post.html.pidgn"));
 
 fn showPost(ctx: *pidgn.Context) !void {
     try ctx.render(BlogPost, .ok, .{
-        .title = "Building Web Apps with Zig and the Zzz Framework",
+        .title = "Building Web Apps with Zig and the Pidgn Framework",
         .author = "alice",
         .created_at = "1699963200",
         .comment_count = "5",
@@ -247,7 +247,7 @@ fn showPost(ctx: *pidgn.Context) !void {
 **Output:**
 ```html
 <article>
-  <h1>Building Web Apps with Zig and the Zzz Framework</h1>
+  <h1>Building Web Apps with Zig and the Pidgn Framework</h1>
   <p class="meta">
     By ALICE |
     Nov 14, 2023 |

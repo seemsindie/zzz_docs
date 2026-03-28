@@ -32,7 +32,7 @@ The pidgn.js file is embedded in the framework binary and served via the `pidgnJ
 
 </Steps>
 
-### `ZzzJsConfig` options
+### `PidgnJsConfig` options
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -49,10 +49,10 @@ The middleware only responds to GET requests at the configured path. All other r
 
 ## Low-level WebSocket connection
 
-Use `Zzz.connect` for a raw WebSocket connection with auto-reconnect and exponential backoff. This connects to endpoints created with `Router.ws`.
+Use `Pidgn.connect` for a raw WebSocket connection with auto-reconnect and exponential backoff. This connects to endpoints created with `Router.ws`.
 
 ```javascript
-const ws = Zzz.connect("ws://localhost:9000/ws/echo", {
+const ws = Pidgn.connect("ws://localhost:9000/ws/echo", {
   maxRetries: 10,   // default: 10
   baseDelay: 1000,  // default: 1000ms
   maxDelay: 30000,  // default: 30000ms
@@ -79,7 +79,7 @@ ws.on("error", (err) => {
 ws.close();
 ```
 
-### `Zzz.connect` API
+### `Pidgn.connect` API
 
 | Method / Property | Description |
 |---|---|
@@ -90,7 +90,7 @@ ws.close();
 
 ### Auto-reconnect
 
-When the connection drops unexpectedly, `Zzz.connect` automatically reconnects with exponential backoff:
+When the connection drops unexpectedly, `Pidgn.connect` automatically reconnects with exponential backoff:
 
 - First retry: `baseDelay` ms (default 1s)
 - Each subsequent retry: doubles the delay, up to `maxDelay` (default 30s)
@@ -99,12 +99,12 @@ When the connection drops unexpectedly, `Zzz.connect` automatically reconnects w
 
 ## Channel socket
 
-Use `Zzz.socket` for topic-based pub/sub communication. This connects to endpoints created with `Router.channel`.
+Use `Pidgn.socket` for topic-based pub/sub communication. This connects to endpoints created with `Router.channel`.
 
 ### Connecting
 
 ```javascript
-const socket = Zzz.socket("ws://localhost:9000/socket", {
+const socket = Pidgn.socket("ws://localhost:9000/socket", {
   heartbeatInterval: 30000,  // default: 30000ms
   maxRetries: 10,
   baseDelay: 1000,
@@ -112,7 +112,7 @@ const socket = Zzz.socket("ws://localhost:9000/socket", {
 });
 ```
 
-### `Zzz.socket` options
+### `Pidgn.socket` options
 
 | Option | Type | Default | Description |
 |---|---|---|---|
@@ -214,14 +214,14 @@ This means your application code only needs to call `join()` once.
 
 ## Fetch wrapper
 
-`Zzz.fetch` is a thin wrapper around the native `fetch()` API that automatically attaches CSRF tokens for non-GET requests.
+`Pidgn.fetch` is a thin wrapper around the native `fetch()` API that automatically attaches CSRF tokens for non-GET requests.
 
 ```javascript
 // GET request (no CSRF needed)
-const response = await Zzz.fetch("/api/users");
+const response = await Pidgn.fetch("/api/users");
 
 // POST with JSON body
-const result = await Zzz.fetch("/api/users", {
+const result = await Pidgn.fetch("/api/users", {
   method: "POST",
   json: { name: "Alice", email: "alice@example.com" },
 });
@@ -233,15 +233,15 @@ The CSRF token is read from a `<meta name="csrf-token">` tag in the document hea
 
 ## Form submission
 
-`Zzz.formSubmit` submits a form via AJAX using `FormData`, with automatic CSRF handling:
+`Pidgn.formSubmit` submits a form via AJAX using `FormData`, with automatic CSRF handling:
 
 ```javascript
 // By element reference
 const form = document.getElementById("my-form");
-const response = await Zzz.formSubmit(form);
+const response = await Pidgn.formSubmit(form);
 
 // By CSS selector
-const response = await Zzz.formSubmit("#my-form");
+const response = await Pidgn.formSubmit("#my-form");
 ```
 
 The method and action are read from the form element's attributes.
@@ -256,7 +256,7 @@ The method and action are read from the form element's attributes.
 <div id="users">Online: <span id="user-list"></span></div>
 
 <script>
-  const socket = Zzz.socket("ws://localhost:9000/socket");
+  const socket = Pidgn.socket("ws://localhost:9000/socket");
   const chat = socket.channel("room:lobby");
   const messages = document.getElementById("messages");
 
