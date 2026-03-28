@@ -1,25 +1,25 @@
 ---
 title: "Assets CLI"
-description: "Use zzz assets to set up, build, and watch JavaScript and CSS assets with Bun."
+description: "Use pidgn assets to set up, build, and watch JavaScript and CSS assets with Bun."
 ---
 
 import { Steps } from '@astrojs/starlight/components';
 
-The `zzz assets` command manages your project's JavaScript and CSS assets. It scaffolds a starter asset directory, bundles and fingerprints files with Bun, and provides a watch mode for development.
+The `pidgn assets` command manages your project's JavaScript and CSS assets. It scaffolds a starter asset directory, bundles and fingerprints files with Bun, and provides a watch mode for development.
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `zzz assets setup` | Generate starter asset files, `package.json`, and `bunfig.toml`. |
-| `zzz assets setup --ssr` | Same as `setup`, plus SSR worker script and sample React component. |
-| `zzz assets build` | Bundle, minify, fingerprint, and generate the asset manifest. |
-| `zzz assets watch` | Watch source files and rebuild on change (Bun watch mode). |
+| `pidgn assets setup` | Generate starter asset files, `package.json`, and `bunfig.toml`. |
+| `pidgn assets setup --ssr` | Same as `setup`, plus SSR worker script and sample React component. |
+| `pidgn assets build` | Bundle, minify, fingerprint, and generate the asset manifest. |
+| `pidgn assets watch` | Watch source files and rebuild on change (Bun watch mode). |
 
 ## setup
 
 ```bash
-zzz assets setup
+pidgn assets setup
 ```
 
 Creates the following structure:
@@ -43,7 +43,7 @@ bun install
 ### SSR setup
 
 ```bash
-zzz assets setup --ssr
+pidgn assets setup --ssr
 ```
 
 Creates the standard files above, plus:
@@ -60,7 +60,7 @@ The `package.json` includes `react` and `react-dom` as dependencies when using `
 ## build
 
 ```bash
-zzz assets build
+pidgn assets build
 ```
 
 The build command performs these steps:
@@ -89,17 +89,17 @@ The asset middleware reads this manifest at runtime to resolve `assetPath("app.j
 ## watch
 
 ```bash
-zzz assets watch
+pidgn assets watch
 ```
 
-Starts Bun in watch mode. When any file under `assets/` changes, the build runs again automatically. Use this alongside `zzz server` during development:
+Starts Bun in watch mode. When any file under `assets/` changes, the build runs again automatically. Use this alongside `pidgn server` during development:
 
 ```bash
 # Terminal 1: application server with auto-restart
-zzz server
+pidgn server
 
 # Terminal 2: asset rebuilds on change
-zzz assets watch
+pidgn assets watch
 ```
 
 ## Typical workflow
@@ -108,21 +108,21 @@ zzz assets watch
 1. **One-time setup**
 
    ```bash
-   zzz assets setup
+   pidgn assets setup
    bun install
    ```
 
 2. **During development** -- run both commands in separate terminals:
 
    ```bash
-   zzz server          # Rebuilds Zig on change
-   zzz assets watch    # Rebuilds assets on change
+   pidgn server          # Rebuilds Zig on change
+   pidgn assets watch    # Rebuilds assets on change
    ```
 
 3. **For production** -- build once before deploying:
 
    ```bash
-   zzz assets build
+   pidgn assets build
    zig build -Doptimize=.ReleaseSafe
    ```
 </Steps>
@@ -133,4 +133,4 @@ zzz assets watch
 - [Live Reload](/frontend/live-reload/) -- automatic browser refresh on file changes
 - [Server-Side Rendering](/frontend/ssr/) -- use `setup --ssr` to add React SSR
 - [Dev Server](/cli/dev-server/) -- automatic application rebuilds during development
-- [CLI Overview](/cli/overview/) -- full list of zzz CLI commands
+- [CLI Overview](/cli/overview/) -- full list of pidgn CLI commands

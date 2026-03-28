@@ -13,17 +13,17 @@ Server-Sent Events (SSE) provide a simple, one-directional channel for pushing u
 1. **Add the SSE middleware to a scoped route**
 
    ```zig
-   const App = zzz.Router.define(.{
+   const App = pidgn.Router.define(.{
        .middleware = &.{
-           zzz.errorHandler(.{}),
-           zzz.logger,
+           pidgn.errorHandler(.{}),
+           pidgn.logger,
        },
        .routes = &.{
-           zzz.Router.get("/", index),
-           zzz.Router.scope("/events", .{
-               .middleware = &.{zzz.sseMiddleware(.{})},
+           pidgn.Router.get("/", index),
+           pidgn.Router.scope("/events", .{
+               .middleware = &.{pidgn.sseMiddleware(.{})},
            }, &.{
-               zzz.Router.get("", sseHandler),
+               pidgn.Router.get("", sseHandler),
            }),
        },
    });
@@ -32,7 +32,7 @@ Server-Sent Events (SSE) provide a simple, one-directional channel for pushing u
 2. **Write the SSE handler**
 
    ```zig
-   fn sseHandler(ctx: *zzz.Context) !void {
+   fn sseHandler(ctx: *pidgn.Context) !void {
        if (ctx.getAssign("sse")) |_| {
            // Client accepts text/event-stream
            ctx.respond(.ok, "text/event-stream", "event: message\ndata: Hello from SSE!\n\n");
@@ -50,7 +50,7 @@ Server-Sent Events (SSE) provide a simple, one-directional channel for pushing u
 | `extra_headers` | `[]const [2][]const u8` | `&.{}` | Additional response headers as `[name, value]` pairs. |
 
 ```zig
-zzz.sseMiddleware(.{
+pidgn.sseMiddleware(.{
     .extra_headers = &.{
         .{ "X-Accel-Buffering", "no" },  // Disable Nginx buffering
     },
@@ -100,8 +100,8 @@ The standard fields are:
 For persistent SSE connections where you need to send multiple events over time, use the `SseWriter`:
 
 ```zig
-fn streamHandler(ctx: *zzz.Context) !void {
-    var writer = zzz.SseWriter.init(ctx);
+fn streamHandler(ctx: *pidgn.Context) !void {
+    var writer = pidgn.SseWriter.init(ctx);
 
     try writer.sendEvent("Hello from SSE!");
     try writer.sendNamedEvent("update", "{\"count\": 1}");
@@ -152,18 +152,18 @@ source.onerror = (e) => {
 A common pattern is to scope SSE routes under a prefix:
 
 ```zig
-zzz.Router.scope("/api/events", .{
+pidgn.Router.scope("/api/events", .{
     .middleware = &.{
-        zzz.bearerAuth(.{ .validate = &myValidator }),
-        zzz.sseMiddleware(.{
+        pidgn.bearerAuth(.{ .validate = &myValidator }),
+        pidgn.sseMiddleware(.{
             .extra_headers = &.{
                 .{ "X-Accel-Buffering", "no" },
             },
         }),
     },
 }, &.{
-    zzz.Router.get("/notifications", notificationStream),
-    zzz.Router.get("/activity", activityStream),
+    pidgn.Router.get("/notifications", notificationStream),
+    pidgn.Router.get("/activity", activityStream),
 }),
 ```
 

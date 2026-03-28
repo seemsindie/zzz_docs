@@ -10,16 +10,16 @@ The response cache middleware stores GET responses in memory and serves them dir
 Add `cacheMiddleware` early in your pipeline so cached responses skip as much work as possible:
 
 ```zig
-const App = zzz.Router.define(.{
+const App = pidgn.Router.define(.{
     .middleware = &.{
-        zzz.errorHandler(.{}),
-        zzz.logger,
-        zzz.cacheMiddleware(.{
+        pidgn.errorHandler(.{}),
+        pidgn.logger,
+        pidgn.cacheMiddleware(.{
             .cacheable_prefixes = &.{"/api/"},
             .default_ttl_s = 300,
         }),
-        zzz.gzipCompress(.{}),
-        zzz.bodyParser,
+        pidgn.gzipCompress(.{}),
+        pidgn.bodyParser,
     },
     .routes = &.{ ... },
 });
@@ -50,18 +50,18 @@ You can also apply the cache middleware to specific route groups using scoped ro
 
 ```zig
 .routes = &.{
-    zzz.Router.get("/", index),
+    pidgn.Router.get("/", index),
 
-    zzz.Router.scope("/api/cached", .{
+    pidgn.Router.scope("/api/cached", .{
         .middleware = &.{
-            zzz.cacheMiddleware(.{
+            pidgn.cacheMiddleware(.{
                 .cacheable_prefixes = &.{"/api/cached/"},
                 .default_ttl_s = 10,
             }),
         },
     }, &.{
-        zzz.Router.get("/time", cachedTimeHandler),
-        zzz.Router.get("/stats", cachedStatsHandler),
+        pidgn.Router.get("/time", cachedTimeHandler),
+        pidgn.Router.get("/stats", cachedStatsHandler),
     }),
 },
 ```
@@ -71,7 +71,7 @@ You can also apply the cache middleware to specific route groups using scoped ro
 Access the global cache instance to manually remove entries:
 
 ```zig
-const cache = zzz.getResponseCache();
+const cache = pidgn.getResponseCache();
 
 // Invalidate a specific path
 cache.remove("/api/cached/time");

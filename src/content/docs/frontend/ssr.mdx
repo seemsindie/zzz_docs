@@ -18,7 +18,7 @@ The SSR bridge renders React components to HTML on the server by calling Bun as 
 1. **Generate SSR starter files**
 
    ```bash
-   zzz assets setup --ssr
+   pidgn assets setup --ssr
    ```
 
    This creates the standard asset files plus an SSR worker script at `assets/ssr-worker.js` and a sample component at `assets/components/App.jsx`.
@@ -32,9 +32,9 @@ The SSR bridge renders React components to HTML on the server by calling Bun as 
 3. **Initialize the SSR pool in your application**
 
    ```zig
-   const zzz = @import("zzz");
+   const pidgn = @import("pidgn");
 
-   var ssr_pool = zzz.SsrPool.init(allocator, .{
+   var ssr_pool = pidgn.SsrPool.init(allocator, .{
        .worker_script = "assets/ssr-worker.js",
        .pool_size = 4,
        .timeout_ms = 5000,
@@ -56,7 +56,7 @@ The SSR bridge renders React components to HTML on the server by calling Bun as 
 Call `render` with the component name and a JSON string of props:
 
 ```zig
-fn ssrHandler(ctx: *zzz.Context) !void {
+fn ssrHandler(ctx: *pidgn.Context) !void {
     const html = try ssr_pool.render("App", "{\"title\":\"Hello\",\"message\":\"From SSR!\"}");
     defer ctx.allocator.free(html);
 
@@ -99,7 +99,7 @@ Components are loaded with `require()`, so use CommonJS exports (`module.exports
 
 ## The worker script
 
-The `zzz assets setup --ssr` command generates a worker script like this:
+The `pidgn assets setup --ssr` command generates a worker script like this:
 
 ```javascript
 const { renderToString } = require("react-dom/server");
@@ -125,7 +125,7 @@ You can customize this script for your needs -- for example, adding a CSS-in-JS 
 ## Next steps
 
 - [Asset Pipeline](/frontend/asset-pipeline/) -- bundle and fingerprint client-side assets
-- [Assets CLI](/cli/assets-cli/) -- `zzz assets setup --ssr` and build commands
-- [Templates](/templates/overview/) -- zzz's built-in template engine for simpler views
+- [Assets CLI](/cli/assets-cli/) -- `pidgn assets setup --ssr` and build commands
+- [Templates](/templates/overview/) -- pidgn's built-in template engine for simpler views
 - [Controllers](/core/controllers/) -- wire SSR into your route handlers
 - [Context](/core/context/) -- response helpers like `ctx.html()`
