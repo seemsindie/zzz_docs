@@ -7,6 +7,8 @@ import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
 
 Flash messages are short notices a handler sets before a redirect — "Saved!", "Could not delete", etc. — that the **next** request reads and displays. After the next request, the message is gone automatically. It's the classic pattern for post-redirect form feedback.
 
+Keys are **arbitrary strings** — use whatever name makes sense for your app. Common ones are `"success"`, `"error"`, `"notice"`, but nothing stops you from using `"cart_added"`, `"payment_failed"`, `"onboarding_step_done"`.
+
 ## Configuration
 
 | Option | Type | Default | Description |
@@ -34,21 +36,21 @@ Flash rides on the existing `session` middleware, so the session cookie lifetime
     });
     ```
 
-2. **Set a flash before redirecting** — call `ctx.putFlash(kind, message)` in the handler that finishes the write, then redirect.
+2. **Set a flash before redirecting** — call `ctx.putFlash(key, message)` in the handler that finishes the write, then redirect.
 
     ```zig
     fn createPost(ctx: *pidgn.Context) !void {
         // ... save the post ...
-        ctx.putFlash(.success, "Post created");
+        try ctx.putFlash("success", "Post created");
         ctx.redirect("/posts/42", .see_other);
     }
     ```
 
-3. **Read it on the next request** — in the redirect target, `ctx.getFlash(kind)` returns the message once, then it's gone.
+3. **Read it on the next request** — in the redirect target, `ctx.getFlash(key)` returns the message once, then it's gone.
 
     ```zig
     fn showPost(ctx: *pidgn.Context) !void {
-        const notice = ctx.getFlash(.success); // optional
+        const notice = ctx.getFlash("success"); // optional
         try ctx.render(ShowTemplate, .ok, .{
             .flash_success = notice orelse "",
             // ... other template fields
@@ -58,23 +60,27 @@ Flash rides on the existing `session` middleware, so the session cookie lifetime
 
 </Steps>
 
-## Available kinds
+## Naming your keys
 
-`FlashKind` is a closed enum so the underlying assign keys stay static literals (a requirement of the session's zero-allocation store).
+Any string works. Some common patterns:
 
-| Kind | Typical use |
-|------|-------------|
-| `.success` | Post-action confirmation ("Saved", "Sent") |
-| `.err` | Failure that isn't a validation error ("Could not connect") |
-| `.notice` | Neutral info ("Session expired — please sign in") |
-| `.warning` | Non-blocking issue ("Profile is public") |
-| `.info` | General info |
+```zig
+try ctx.putFlash("success", "Saved!");
+try ctx.putFlash("error",   "Could not connect");
+try ctx.putFlash("notice",  "Your session has expired");
+try ctx.putFlash("warning", "This profile is public");
 
-`.err` uses the short name because `error` is a Zig keyword.
+// App-specific keys are fine too:
+try ctx.putFlash("cart_added",      "Item added to your cart");
+try ctx.putFlash("payment_failed",  "Your card was declined");
+try ctx.putFlash("onboarding_done", "You're all set!");
+```
+
+`ctx.putFlash` returns an error (it allocates the compound key from the request arena), so remember the `try`.
 
 ## Rendering in a template
 
-The handler is responsible for piping the flash into the template's data struct — templates don't reach into `ctx.assigns` directly. Render it with a conditional:
+The handler is responsible for piping the flash into the template's data struct — templates don't reach into `ctx.assigns` directly. Render with a conditional:
 
 ```html
 {{#if flash_success}}
@@ -85,14 +91,34 @@ The handler is responsible for piping the flash into the template's data struct 
 {{/if}}
 ```
 
+A small helper keeps handlers tidy:
+
+```zig
+fn withFlash(ctx: *pidgn.Context, comptime keys: []const []const u8, base: anytype) @TypeOf(base) {
+    var out = base;
+    inline for (keys) |k| {
+        @field(out, "flash_" ++ k) = ctx.getFlash(k) orelse "";
+    }
+    return out;
+}
+
+// usage:
+try ctx.render(Tmpl, .ok, withFlash(ctx, &.{"success", "error"}, .{
+    .title = "Home",
+    .flash_success = "",
+    .flash_error = "",
+    // ...
+}));
+```
+
 ## How it works
 
-The middleware maintains two sets of assign keys per flash kind:
+The middleware maintains two naming conventions on top of the session store:
 
-- `__flash_<kind>` — the **pending** value. Written by `putFlash` and persisted to the session so it survives the redirect.
-- `flash_<kind>` — the **display** value for the current request. Populated by the middleware at the start of each request, cleared at the end so it doesn't accumulate.
+- `__flash_<key>` — the **pending** value. Written by `putFlash` and persisted to the session so it survives the redirect.
+- `flash_<key>` — the **display** value for the current request. Populated by the middleware at the start of each request (from the pending entry), cleared at the end so it doesn't accumulate into the next request.
 
-On each request, `flash` promotes any pending values into display keys, clears the pending keys (so they don't survive past this request), runs the handler, and finally clears the display keys before the session middleware persists assigns back to the store. Net effect: a pending flash becomes visible on exactly one subsequent request.
+On each request, `flash` scans `ctx.assigns` for keys starting with `__flash_`, promotes each to its `flash_<key>` counterpart, zeroes the pending entry (so it doesn't survive past this request), then runs the handler. After the handler, it clears the display keys so they don't get persisted back into the session. Net effect: a pending flash becomes visible on exactly one subsequent request.
 
 ## Related
 
