@@ -24,15 +24,37 @@ import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
 
 ## Adding the dependency
 
-Add `pidgn_template` to your `build.zig.zon`:
+Pick whichever layout matches your setup.
+
+<Tabs>
+<TabItem label="Workspace (relative path)">
 
 ```zig
+// build.zig.zon
 .dependencies = .{
     .pidgn_template = .{
         .path = "../pidgn_template",
     },
 },
 ```
+
+</TabItem>
+<TabItem label="Standalone (URL + hash)">
+
+```zig
+// build.zig.zon
+.dependencies = .{
+    .pidgn_template = .{
+        .url = "git+https://github.com/seemsindie/pidgn_template#aec20dc6144c986523efc04b83c014a5ac3b9d86",
+        .hash = "pidgn_template-0.3.1-beta.1-vkexMPsAAQDOQ58b2BjcKJjQDlpNm2LJRZ-jcdXSM7_6",
+    },
+},
+```
+
+See [Adding pidgn_db](/database/overview/#adding-the-dependency) for how to find the correct `hash` value.
+
+</TabItem>
+</Tabs>
 
 Then in your `build.zig`, add the module:
 

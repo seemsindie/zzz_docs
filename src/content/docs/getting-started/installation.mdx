@@ -89,20 +89,51 @@ pidgn version
 
 ## Add to an existing project
 
-If you already have a Zig project and want to add pidgn as a dependency:
+If you already have a Zig project and want to add pidgn as a dependency, pick whichever layout matches your setup.
 
-1. Add the dependency to your `build.zig.zon`:
+<Tabs>
+<TabItem label="Workspace (relative path)">
+
+Useful when `pidgn` lives next to your app on disk (monorepo, fork, or local checkout).
 
 ```zig
+// build.zig.zon
 .dependencies = .{
     .pidgn = .{
-        .url = "https://github.com/seemsindie/pidgn/archive/refs/tags/v0.1.0.tar.gz",
+        .path = "../pidgn",
+    },
+},
+```
+
+</TabItem>
+<TabItem label="Standalone (URL + hash)">
+
+Fetches `pidgn` from GitHub and pins it to a specific commit. The `hash` is a content-addressable digest that Zig verifies on fetch.
+
+```zig
+// build.zig.zon
+.dependencies = .{
+    .pidgn = .{
+        .url = "git+https://github.com/seemsindie/pidgn#eb21548",
         .hash = "...", // zig build will tell you the expected hash
     },
 },
 ```
 
-2. Wire it up in `build.zig`:
+Replace the commit SHA after `#` with whatever you want to pin (a commit, tag, or branch tip).
+
+**Finding the hash.** Leave the `hash = "..."` line as-is on the first run, then `zig build` prints the correct value in the error message:
+
+```
+error: hash mismatch: manifest declares <old> but the fetched package has <new>
+```
+
+Paste `<new>` back into `build.zig.zon`. The workspace ships a helper script `zhash` that automates this across deps — see [Workspace tooling](/getting-started/project-structure/#workspace-tooling).
+
+</TabItem>
+</Tabs>
+
+Then wire it up in `build.zig`:
 
 ```zig
 const pidgn_dep = b.dependency("pidgn", .{
@@ -113,7 +144,7 @@ const pidgn_dep = b.dependency("pidgn", .{
 exe.root_module.addImport("pidgn", pidgn_dep.module("pidgn"));
 ```
 
-3. Import and use:
+And import it in your source files:
 
 ```zig
 const pidgn = @import("pidgn");

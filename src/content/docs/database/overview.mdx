@@ -44,15 +44,49 @@ Supporting these are **Pool** (manages a fixed set of connections), **Transactio
 
 ## Adding the dependency
 
-Add `pidgn_db` to your `build.zig.zon`:
+Pick whichever layout matches your setup. The `build.zig` import is the same either way.
+
+<Tabs>
+<TabItem label="Workspace (relative path)">
+
+Useful when `pidgn_db` lives next to your app on disk (monorepo, fork, or local checkout).
 
 ```zig
+// build.zig.zon
 .dependencies = .{
     .pidgn_db = .{
         .path = "../pidgn_db",
     },
 },
 ```
+
+</TabItem>
+<TabItem label="Standalone (URL + hash)">
+
+Fetches `pidgn_db` from GitHub and pins it to a specific commit. The `hash` is a content-addressable digest that Zig verifies on fetch.
+
+```zig
+// build.zig.zon
+.dependencies = .{
+    .pidgn_db = .{
+        .url = "git+https://github.com/seemsindie/pidgn_db#964b707fbfdea26f75f5fee500317c2cf22c61ac",
+        .hash = "pidgn_db-0.3.1-beta.1-0vqMpvi2mQBpxrPOrjYILyrNFRXRFHMHuEdoC0SvQ6rK",
+    },
+},
+```
+
+Replace the commit SHA after `#` with whatever you want to pin to; the hash comes from Zig's package cache.
+
+To find the right hash, leave the `hash = "..."` line out (or paste any string), run `zig build` once, and Zig will print the correct hash in the error message:
+
+```
+error: hash mismatch: manifest declares <old> but the fetched package has <new>
+```
+
+Paste the `<new>` value back into `build.zig.zon`. The workspace ships a helper script `zhash` that automates this — see [Workspace tooling](/getting-started/project-structure/#workspace-tooling).
+
+</TabItem>
+</Tabs>
 
 Then in your `build.zig`, import the module:
 

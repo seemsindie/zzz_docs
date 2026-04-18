@@ -22,6 +22,11 @@ Application  -->  Mailer(Adapter)  -->  SmtpAdapter / SendGridAdapter / DevAdapt
 <Steps>
 1. **Add `pidgn_mailer` to your `build.zig.zon`**
 
+   Pick whichever layout matches your setup.
+
+   <Tabs>
+   <TabItem label="Workspace (relative path)">
+
    ```zig
    .dependencies = .{
        .pidgn_mailer = .{
@@ -29,6 +34,23 @@ Application  -->  Mailer(Adapter)  -->  SmtpAdapter / SendGridAdapter / DevAdapt
        },
    },
    ```
+
+   </TabItem>
+   <TabItem label="Standalone (URL + hash)">
+
+   ```zig
+   .dependencies = .{
+       .pidgn_mailer = .{
+           .url = "git+https://github.com/seemsindie/pidgn_mailer#6d29fd99800fd394f1a4850300f1889b68cc3c71",
+           .hash = "pidgn_mailer-0.3.1-beta.1-__6bAHpvAQB4B8CHuxmWGSVJVrhXFnBXYGWkHkXTxZT1",
+       },
+   },
+   ```
+
+   See [Adding pidgn_db](/database/overview/#adding-the-dependency) for how to find the correct `hash` value.
+
+   </TabItem>
+   </Tabs>
 
 2. **Wire it into `build.zig`**
 

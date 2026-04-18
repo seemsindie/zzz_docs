@@ -3,7 +3,7 @@ title: "Background Jobs Overview"
 description: "Introduction to pidgn_jobs — background job processing for the pidgn web framework with in-memory and database-backed queues, retry strategies, cron scheduling, and telemetry."
 ---
 
-import { Steps } from '@astrojs/starlight/components';
+import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
 
 pidgn_jobs is a background job processing library for the pidgn ecosystem. It lets you define work as discrete jobs, enqueue them from your request handlers, and process them asynchronously in worker threads. Jobs survive failures through configurable retry strategies, can be scheduled with cron expressions, and emit telemetry events for observability.
 
@@ -43,15 +43,37 @@ scheduled --> available (when scheduled_at time arrives)
 
 ## Adding the dependency
 
-Add `pidgn_jobs` to your project's `build.zig.zon`:
+Pick whichever layout matches your setup. The `build.zig` import is the same either way.
+
+<Tabs>
+<TabItem label="Workspace (relative path)">
 
 ```zig
+// build.zig.zon
 .dependencies = .{
     .pidgn_jobs = .{
         .path = "../pidgn_jobs",
     },
 },
 ```
+
+</TabItem>
+<TabItem label="Standalone (URL + hash)">
+
+```zig
+// build.zig.zon
+.dependencies = .{
+    .pidgn_jobs = .{
+        .url = "git+https://github.com/seemsindie/pidgn_jobs#c85a4c4e9c87045639babb1a519fd8f37cf0b841",
+        .hash = "pidgn_jobs-0.3.1-beta.1-bsZY9OpgAQCktXPf_m6chMBSRPoy52YLo8EPltZtIkvD",
+    },
+},
+```
+
+Replace the commit SHA after `#` with whatever you want to pin. For the `hash`, run `zig build` once with a placeholder — Zig prints the correct hash in the mismatch error and you paste it back in. See [Adding pidgn_db](/database/overview/#adding-the-dependency) for details.
+
+</TabItem>
+</Tabs>
 
 Then wire it into your `build.zig`:
 
