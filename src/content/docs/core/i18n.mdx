@@ -133,19 +133,134 @@ defer ctx.allocator.free(msg);
 
 Both `{name}` and numeric placeholders (`{count}`) are supported. Unknown placeholders are emitted verbatim — not replaced with empty strings — so missing args surface loudly.
 
+## Loading translations at runtime
+
+Hand-authoring `Translations` literals in Zig is fine for small apps but tedious for anything with real copy. Pidgn ships loaders for two external formats — `.po` (GNU gettext) and JSON — that return the same `Translations` value. Pair with `@embedFile` so the translations still live in the binary and startup is zero-I/O.
+
+### .po (gettext)
+
+```po
+# locales/fr.po
+msgid ""
+msgstr "Content-Type: text/plain; charset=UTF-8\n"
+
+msgid "greet"
+msgstr "Bonjour, {name} !"
+
+msgid "items_singular"
+msgid_plural "items_plural"
+msgstr[0] "1 article"
+msgstr[1] "{count} articles"
+```
+
+```zig
+const fr_bytes = @embedFile("../locales/fr.po");
+var fr = try pidgn.i18n.loadPo(allocator, "fr", fr_bytes);
+// fr.translations is ready to use; call fr.deinit() at shutdown.
+```
+
+Supported: `msgid` / `msgstr`, `msgid_plural` / `msgstr[N]`, `#` comments, multi-line concatenated strings. The gettext header entry (empty `msgid`) is skipped.
+
+### JSON
+
+```json
+{
+  "default_locale": "en",
+  "locales": {
+    "en": {
+      "greet": "Hello, {name}!",
+      "items": { "0": "no items", "1": "1 item", "other": "{count} items" }
+    },
+    "fr": {
+      "greet": "Bonjour, {name} !",
+      "items": { "0": "aucun article", "1": "1 article", "other": "{count} articles" }
+    }
+  }
+}
+```
+
+```zig
+const bytes = @embedFile("../locales/all.json");
+var loaded = try pidgn.i18n.loadJson(allocator, bytes);
+```
+
+String values are plain entries. Object values are plurals — numeric-string keys are exact counts, `"other"` is the fallback.
+
+Both loaders return a `Loaded` value with an owning arena. Keep it for the life of the process (a web server) and drop it only at shutdown.
+
+## Simpler call-site: `ctx.t` and `ctx.tn`
+
+Passing `allocator`, catalog, locale, key, and args to every translation call gets old. Register the catalog once, then handlers call `ctx.t(key, args)`:
+
+```zig
+// Startup:
+var loaded = try pidgn.i18n.loadJson(allocator, @embedFile("locales.json"));
+pidgn.i18n.setGlobal(&loaded.translations);
+
+// Handler:
+fn welcome(ctx: *pidgn.Context) !void {
+    const heading = try ctx.t("greet", .{ .name = user.name });
+    try ctx.render(Template, .ok, .{ .heading = heading });
+}
+```
+
+- Locale is read from `ctx.assigns["locale"]` (populated by `localeMiddleware`), falling back to the catalog's `default_locale`.
+- The returned slice is allocated from the request arena — no explicit free.
+- If you didn't call `setGlobal`, `ctx.t` returns a copy of the key rather than crashing.
+
+Plural variant:
+
+```zig
+const count_msg = try ctx.tn("items", n, .{ .count = n });
+```
+
+The explicit `pidgn.i18n.t(...)` form is still available as an escape hatch when you need a different catalog per request or per call.
+
+## Template integration
+
+The template engine doesn't call `t()` directly — pipes don't have render-time state. Pre-render in the handler and pass the strings through the data struct:
+
+```zig
+fn index(ctx: *pidgn.Context) !void {
+    try ctx.render(Template, .ok, .{
+        .title = try ctx.t("welcome_title", .{}),
+        .count = try ctx.tn("item_count", n, .{ .count = n }),
+        .user = user,
+    });
+}
+```
+
+Template:
+
+```html
+<h1>{{title}}</h1>
+<p>{{count}}</p>
+```
+
 ## Typical wiring
 
 <Steps>
 
-1. **Put your translations in a module**:
+1. **Author your translations** in `.po` or JSON and embed them:
 
     ```zig
     // src/translations.zig
     const pidgn = @import("pidgn");
-    pub const catalog = pidgn.Translations{ ... };
+    const std = @import("std");
+
+    pub fn load(allocator: std.mem.Allocator) !pidgn.i18n.Loaded {
+        return pidgn.i18n.loadJson(allocator, @embedFile("../locales/all.json"));
+    }
     ```
 
-2. **Register the locale middleware** in your app:
+2. **Register at startup**:
+
+    ```zig
+    var loaded = try @import("translations.zig").load(gpa);
+    pidgn.i18n.setGlobal(&loaded.translations);
+    ```
+
+3. **Register the locale middleware**:
 
     ```zig
     pidgn.localeMiddleware(.{
@@ -154,18 +269,10 @@ Both `{name}` and numeric placeholders (`{count}`) are supported. Unknown placeh
     }),
     ```
 
-3. **Translate inside handlers** and pass the rendered strings into your templates:
+4. **Translate inside handlers** with the short form:
 
     ```zig
-    const translations = @import("translations.zig").catalog;
-
-    fn welcome(ctx: *pidgn.Context) !void {
-        const locale = ctx.getAssign("locale") orelse "en";
-        const heading = try pidgn.i18n.t(ctx.allocator, translations, locale, "greet", .{
-            .name = user.name,
-        });
-        try ctx.render(Template, .ok, .{ .heading = heading });
-    }
+    const msg = try ctx.t("greet", .{ .name = user.name });
     ```
 
 </Steps>

@@ -98,5 +98,77 @@ pub const Meta = struct {
 ## Notes
 
 - **Invalid input is coerced, not rejected.** `?page=abc` or `?per_page=-5` both fall back to defaults rather than returning 400. If you want strict validation, use changesets on the query params instead.
-- **Very large `offset` on a large table is slow.** This is a database concern, not a pagination-helper concern — consider cursor-based pagination for deep browsing.
+- **Very large `offset` on a large table is slow.** This is a database concern, not a pagination-helper concern — use cursor pagination (below) for deep browsing.
 - **Stateless.** This helper has no database or cache side effects — it only transforms the query string.
+
+## Cursor pagination
+
+Offset/limit is convenient but falls apart on very large tables or data that's changing underneath the user — skipping `OFFSET 50000` is expensive, and insertions shift the page boundaries. Cursor pagination replaces the offset with an opaque "continue from here" token derived from the last row's sort key.
+
+Pidgn provides the envelope — base64-decoding the cursor off the query and base64-encoding a fresh cursor on the way out. You own what the bytes represent (a last-seen ID, a `(timestamp, id)` tuple, a JSON blob of sort state, etc).
+
+### `cursorFromQuery`
+
+```zig
+fn listPosts(ctx: *pidgn.Context) !void {
+    var c = try pidgn.pagination.cursorFromQuery(ctx.allocator, ctx, .{
+        .max_per_page = 100,
+    });
+    defer c.deinit(ctx.allocator);
+
+    // c.limit  — clamped page size.
+    // c.raw    — the base64 token as sent (null on first page).
+    // c.decoded — base64-decoded bytes (null on first page).
+
+    const after_id = pidgn.pagination.decodeIntCursor(&c) orelse 0;
+    const posts = try db.all(Post, .{
+        .where = .{ .id_gt = after_id },
+        .order = .id_asc,
+        .limit = c.limit,
+    });
+
+    // Build the next-page cursor, if any.
+    const next_cursor: ?[]u8 = if (posts.len > 0)
+        try pidgn.pagination.encodeIntCursor(ctx.allocator, posts[posts.len - 1].id)
+    else
+        null;
+
+    try ctx.render(IndexTemplate, .ok, .{
+        .posts = posts,
+        .next_cursor = next_cursor orelse "",
+    });
+}
+```
+
+### Configuration
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `default_per_page` | `u32` | `20` | |
+| `max_per_page` | `u32` | `100` | |
+| `min_per_page` | `u32` | `1` | |
+| `cursor_param` | `[]const u8` | `"cursor"` | Query-param name. |
+| `per_page_param` | `[]const u8` | `"per_page"` | Accepts `limit` too for convenience. |
+
+### Encoding helpers
+
+```zig
+// Generic — opaque bytes go in, URL-safe base64 comes out.
+const tok = try pidgn.pagination.encodeCursor(ctx.allocator, "ts:170000:id:42");
+
+// Integer shortcut for the common "last row ID" case.
+const tok = try pidgn.pagination.encodeIntCursor(ctx.allocator, last_id);
+```
+
+`decodeIntCursor(&cursor)` parses the matching token back to `i64`, or returns null if the token is missing (first page) or malformed.
+
+### When to use cursor vs offset
+
+| Use offset/limit when | Use cursor when |
+|-----------------------|-----------------|
+| Small / bounded result sets | Large result sets |
+| Random page access (`?page=10`) | Sequential / infinite-scroll |
+| Result order changes on writes (user re-sorting) | Stable append-only or ID-ordered data |
+| You need `total_pages` in the envelope | You only need `has_next` |
+
+Both APIs live side-by-side in `pidgn.pagination`; pick per endpoint.
