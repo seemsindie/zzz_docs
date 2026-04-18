@@ -1,0 +1,98 @@
+---
+title: "IP Allowlist & Blocklist"
+description: "Deny or allow requests by client IP with IPv4 CIDR support. Deploy only behind a proxy you trust to set the client-IP header."
+---
+
+`pidgn.ipAllowlist` and `pidgn.ipBlocklist` gate requests based on the client's IP address. Matching supports literal IPv4 addresses and IPv4 CIDR ranges. IPv6 is supported as an exact literal — full IPv6 CIDR matching is intentionally out of scope.
+
+## Trust model
+
+Both middleware read the client IP from a request header (default: `X-Forwarded-For`). That header is set by whatever is in front of the server — a load balancer, CDN, reverse proxy. **Only deploy these middleware behind a proxy you trust to set that header correctly**, because any client can trivially set `X-Forwarded-For` themselves otherwise.
+
+If you're running pidgn on a bare socket with no proxy, use `client_ip_header = "Remote-Addr"` — but note pidgn doesn't synthesize that header automatically today, so you'd need to add it in a preceding middleware. Most production deployments do have a proxy.
+
+## Configuration
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `rules` | `[]const []const u8` | _(required)_ | IP literals or CIDR ranges (e.g. `"10.0.0.0/8"`, `"1.2.3.4"`). |
+| `mode` | `.allow` \| `.block` | _(required)_ | See below. |
+| `client_ip_header` | `[]const u8` | `"X-Forwarded-For"` | Header to read the IP from. |
+| `status_code` | `u16` | `403` | Response status when denied. |
+| `body` | `[]const u8` | `"Forbidden"` | Response body when denied. |
+
+`ipAllowlist(c)` / `ipBlocklist(c)` are thin wrappers setting `mode` for you.
+
+## Allowlist
+
+A match passes, a non-match returns 403. Useful for admin panels, staging environments, or internal APIs:
+
+```zig
+pidgn.ipAllowlist(.{
+    .rules = &.{
+        "10.0.0.0/8",      // office VPN
+        "192.168.1.0/24",  // on-prem
+        "203.0.113.42",    // home IP of an admin
+    },
+    .mode = .allow,  // redundant, but explicit
+}),
+```
+
+## Blocklist
+
+A match returns 403, a non-match passes. Useful for banning abusive clients:
+
+```zig
+pidgn.ipBlocklist(.{
+    .rules = &.{
+        "1.2.3.4",
+        "5.0.0.0/8",
+    },
+    .mode = .block,
+}),
+```
+
+## CIDR notation
+
+Write a network as `address/prefix`:
+
+| Notation | Matches |
+|----------|---------|
+| `10.0.0.0/8` | 10.0.0.0 – 10.255.255.255 |
+| `192.168.1.0/24` | 192.168.1.0 – 192.168.1.255 |
+| `203.0.113.42/32` | Single address (equivalent to bare `203.0.113.42`) |
+| `0.0.0.0/0` | Every IPv4 address |
+
+Prefix 0 is allowed but probably a mistake — `/0` means "everything", so you've made every request match.
+
+## X-Forwarded-For chains
+
+Proxies append to `X-Forwarded-For`, so the header often looks like `client, proxy1, proxy2`. The middleware takes the **leftmost** entry (the client). That's correct when your proxy chain is trusted — if it isn't, a client can inject a fake leftmost entry. Again: only deploy behind a proxy you trust.
+
+## Scoping to a subset of routes
+
+You often want the allowlist on `/admin` but not the public site. Use `Router.scope`:
+
+```zig
+.routes = &.{
+    // Public routes — no IP gating.
+    pidgn.Router.get("/", home),
+    pidgn.Router.get("/posts/:id", showPost),
+
+    // Admin — allowlisted.
+    pidgn.Router.scope("/admin", &.{
+        pidgn.ipAllowlist(.{
+            .rules = &.{ "10.0.0.0/8" },
+            .mode = .allow,
+        }),
+    }, &.{
+        pidgn.Router.get("/", adminDash),
+        pidgn.Router.get("/users", adminUsers),
+    }),
+},
+```
+
+## Related
+
+- [Rate limiting](/authentication/rate-limiting/) — limit frequency of requests from an IP rather than block entirely.
+- [Action log](/core/action-log/) — audit-trail sink; pairs well with block rules to answer "who tried what and when".

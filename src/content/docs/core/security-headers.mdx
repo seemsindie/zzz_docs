@@ -1,0 +1,121 @@
+---
+title: "Security Headers (CSP & HSTS)"
+description: "Content-Security-Policy and Strict-Transport-Security middleware with sensible defaults and comptime-built header values."
+---
+
+import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
+
+pidgn ships two small middleware for the two security response headers almost every HTML app benefits from. Both build their header values at comptime so the runtime path is a single header append.
+
+## Content-Security-Policy
+
+### Configuration
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `policy` | `[]const u8` | `"default-src 'self'"` | Full policy string. |
+| `report_only` | `bool` | `false` | Emit `Content-Security-Policy-Report-Only` instead (browsers report but don't block). |
+
+### Basic usage
+
+```zig
+pidgn.csp(.{
+    .policy = "default-src 'self'; img-src 'self' data:; script-src 'self' 'unsafe-inline'",
+}),
+```
+
+The middleware appends the header on every response. To add a nonce per request, set it yourself from the handler before rendering a template.
+
+### Staged rollouts
+
+When introducing CSP to an existing app, start in report-only mode so violations get reported to you without breaking pages:
+
+```zig
+pidgn.csp(.{
+    .policy = "default-src 'self'; report-uri /csp-report",
+    .report_only = true,
+}),
+```
+
+When your telemetry is clean, flip `report_only` back to `false`.
+
+## Strict-Transport-Security
+
+### Configuration
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `max_age` | `u64` | `31_536_000` (1 year) | How long browsers will remember to use HTTPS. |
+| `include_subdomains` | `bool` | `true` | Whether the policy applies to all subdomains. |
+| `preload` | `bool` | `false` | Submits the site for the HSTS preload list — only enable once your entire domain tree is HTTPS-only. |
+
+### Basic usage
+
+```zig
+pidgn.hsts(.{
+    .max_age = 63_072_000,   // 2 years
+    .include_subdomains = true,
+    .preload = true,
+}),
+```
+
+The emitted header for the above config is:
+
+```
+Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+```
+
+Built entirely at comptime — no per-request formatting.
+
+## Using them together
+
+<Tabs>
+<TabItem label="Typical HTML app">
+
+```zig
+const App = pidgn.Router.define(.{
+    .middleware = &.{
+        pidgn.errorHandler(.{}),
+        pidgn.logger,
+        pidgn.csp(.{ .policy = "default-src 'self'; img-src 'self' data:" }),
+        pidgn.hsts(.{}),
+        pidgn.session(.{}),
+        pidgn.csrf(.{}),
+        // ... your other middleware
+    },
+    .routes = routes,
+});
+```
+
+</TabItem>
+<TabItem label="Pure API server">
+
+An API that doesn't serve HTML usually only needs HSTS (browsers won't apply CSP to non-HTML responses, but middleware doesn't know that — so drop CSP to avoid dead weight).
+
+```zig
+const App = pidgn.Router.define(.{
+    .middleware = &.{
+        pidgn.errorHandler(.{}),
+        pidgn.logger,
+        pidgn.hsts(.{ .preload = true }),
+        pidgn.cors(.{ .allow_origins = &.{"https://app.example.com"} }),
+        pidgn.bodyParser,
+        pidgn.rateLimit(.{}),
+    },
+    .routes = routes,
+});
+```
+
+</TabItem>
+</Tabs>
+
+## Caveats
+
+- **HSTS requires HTTPS.** Only enable HSTS on a domain you serve exclusively over HTTPS — a browser that has seen the header will refuse to make plain HTTP requests to it. Breaking this on a live domain is painful.
+- **Preload is a one-way ticket.** Removal from the HSTS preload list takes months. Enable `preload = true` only after you're sure.
+- **CSP + inline scripts.** If you serve inline `<script>` blocks, you need either `'unsafe-inline'` (defeats most of CSP) or a nonce-based policy. The nonce pattern needs framework work — open a PR if you want first-class support.
+
+## Related
+
+- [Sessions and CSRF Protection](/authentication/sessions-and-csrf/) — the third leg of the "defense in depth" stool.
+- [Signed & Encrypted Cookies](/core/secure-cookies/) — pair naturally with security headers.

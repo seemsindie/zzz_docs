@@ -1,0 +1,100 @@
+---
+title: "Flash Messages"
+description: "One-shot session-backed messages that survive a single redirect. Use them for post-form success/error notices rendered on the next page."
+---
+
+import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
+
+Flash messages are short notices a handler sets before a redirect — "Saved!", "Could not delete", etc. — that the **next** request reads and displays. After the next request, the message is gone automatically. It's the classic pattern for post-redirect form feedback.
+
+## Configuration
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| _(none)_ | | | Flash takes an empty `FlashConfig` today; behavior is governed by the surrounding session. |
+
+Flash rides on the existing `session` middleware, so the session cookie lifetime controls how long an unread flash could theoretically survive (though they clear on first read). Messages are stored in the same in-memory assigns-backed session store — nothing hits the database.
+
+## Basic usage
+
+<Steps>
+
+1. **Register `session` and `flash` in the pipeline** — in that order, because `flash` reads from values the session middleware loaded into `ctx.assigns`.
+
+    ```zig
+    const App = pidgn.Router.define(.{
+        .middleware = &.{
+            pidgn.session(.{}),
+            pidgn.flash(.{}),
+        },
+        .routes = &.{
+            pidgn.Router.post("/posts", createPost),
+            pidgn.Router.get("/posts/:id", showPost),
+        },
+    });
+    ```
+
+2. **Set a flash before redirecting** — call `ctx.putFlash(kind, message)` in the handler that finishes the write, then redirect.
+
+    ```zig
+    fn createPost(ctx: *pidgn.Context) !void {
+        // ... save the post ...
+        ctx.putFlash(.success, "Post created");
+        ctx.redirect("/posts/42", .see_other);
+    }
+    ```
+
+3. **Read it on the next request** — in the redirect target, `ctx.getFlash(kind)` returns the message once, then it's gone.
+
+    ```zig
+    fn showPost(ctx: *pidgn.Context) !void {
+        const notice = ctx.getFlash(.success); // optional
+        try ctx.render(ShowTemplate, .ok, .{
+            .flash_success = notice orelse "",
+            // ... other template fields
+        });
+    }
+    ```
+
+</Steps>
+
+## Available kinds
+
+`FlashKind` is a closed enum so the underlying assign keys stay static literals (a requirement of the session's zero-allocation store).
+
+| Kind | Typical use |
+|------|-------------|
+| `.success` | Post-action confirmation ("Saved", "Sent") |
+| `.err` | Failure that isn't a validation error ("Could not connect") |
+| `.notice` | Neutral info ("Session expired — please sign in") |
+| `.warning` | Non-blocking issue ("Profile is public") |
+| `.info` | General info |
+
+`.err` uses the short name because `error` is a Zig keyword.
+
+## Rendering in a template
+
+The handler is responsible for piping the flash into the template's data struct — templates don't reach into `ctx.assigns` directly. Render it with a conditional:
+
+```html
+{{#if flash_success}}
+  <div class="alert alert-success">{{flash_success}}</div>
+{{/if}}
+{{#if flash_error}}
+  <div class="alert alert-error">{{flash_error}}</div>
+{{/if}}
+```
+
+## How it works
+
+The middleware maintains two sets of assign keys per flash kind:
+
+- `__flash_<kind>` — the **pending** value. Written by `putFlash` and persisted to the session so it survives the redirect.
+- `flash_<kind>` — the **display** value for the current request. Populated by the middleware at the start of each request, cleared at the end so it doesn't accumulate.
+
+On each request, `flash` promotes any pending values into display keys, clears the pending keys (so they don't survive past this request), runs the handler, and finally clears the display keys before the session middleware persists assigns back to the store. Net effect: a pending flash becomes visible on exactly one subsequent request.
+
+## Related
+
+- [Sessions and CSRF Protection](/authentication/sessions-and-csrf/) — the session middleware that flash depends on.
+- [Form builder](/core/form-builder/) — for the forms that typically trigger a flash message.

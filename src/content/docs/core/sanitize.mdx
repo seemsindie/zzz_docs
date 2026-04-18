@@ -1,0 +1,48 @@
+---
+title: "Input Sanitization"
+description: "HTML-escape, tag-strip, and whitespace-normalize helpers. Pidgn's template engine already escapes — these are for the cases where you're writing HTML outside of a template."
+---
+
+`pidgn.sanitize` is a small set of defensive helpers for the times you're producing HTML (or storing user content) outside the template engine, which already handles escaping for you.
+
+## Available functions
+
+| Function | Purpose |
+|----------|---------|
+| `escapeHtml(alloc, input)` | Replace `& < > " '` with their HTML entities. |
+| `stripTags(alloc, input)` | Remove anything between `<` and `>`. |
+| `normalizeWhitespace(alloc, input)` | Collapse runs of ASCII whitespace into single spaces, trim ends. |
+
+All three allocate with the caller-supplied allocator (typically `ctx.allocator`) and return a newly-owned slice. They never mutate the input.
+
+## Escape HTML
+
+```zig
+const safe = try pidgn.sanitize.escapeHtml(ctx.allocator, user_input);
+// <b>Hi</b> & "quotes"  →  &lt;b&gt;Hi&lt;/b&gt; &amp; &quot;quotes&quot;
+```
+
+Use when you're splicing untrusted text into an HTML string manually (building an email body, an RSS feed, a non-template response). The template engine already calls this — you don't need to call it again for `{{var}}` interpolation.
+
+## Strip tags
+
+```zig
+const plain = try pidgn.sanitize.stripTags(ctx.allocator, user_html);
+// <b>hi</b> <a href="x">click</a>  →  hi click
+```
+
+Naive — removes anything between `<` and `>`. Use for generating plain-text fallbacks of HTML emails, preview snippets on a blog index, or normalising copy-pasted rich text. Don't use this as a security boundary against XSS; `escapeHtml` is the right tool for that.
+
+## Normalize whitespace
+
+```zig
+const tight = try pidgn.sanitize.normalizeWhitespace(ctx.allocator, user_input);
+//  "  hello \t\n  world  "  →  "hello world"
+```
+
+Handy before storing user-entered single-line fields (names, slugs, titles) so round-tripping through forms doesn't accumulate stray tabs or trailing newlines.
+
+## Related
+
+- [Form builder](/core/form-builder/) — the write-side counterpart; its helpers escape attributes automatically.
+- [Templates: Syntax](/templates/syntax/) — the template engine's automatic escaping behaviour.

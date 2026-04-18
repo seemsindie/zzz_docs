@@ -1,0 +1,122 @@
+---
+title: "Signed & Encrypted Cookies"
+description: "Tamper-evident cookies with HMAC-SHA256 signatures and opaque cookies with AES-256-GCM encryption. Comptime-bound helpers — no runtime secret lookup."
+---
+
+import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
+
+pidgn provides two cookie helpers for storing user-facing data that must not be trivially modified by the client:
+
+- **`SignedCookies`** — the value is visible client-side, but any modification invalidates the HMAC and the cookie is rejected on read. Use for non-secret identifiers like user IDs, preference flags, feature toggles.
+- **`EncryptedCookies`** — the value is both opaque and tamper-evident, using AES-256-GCM with a fresh random nonce per cookie. Use when the client should not see the value (session tokens, cart state containing prices, etc.).
+
+Both are **comptime-bound** to a secret or key — the helpers return a namespace struct parameterised on the configuration, so there's no runtime secret lookup on every call.
+
+## Configuration
+
+`SignedCookies` takes a `SignedCookieConfig`:
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `secret` | `[]const u8` | _(required)_ | HMAC secret. Compile error if empty. Use at least 32 random bytes. |
+
+`EncryptedCookies` takes an `EncryptedCookieConfig`:
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `key` | `[32]u8` | _(required)_ | Raw 32-byte AES-256 key. |
+
+## Basic usage
+
+<Steps>
+
+1. **Bind a helper at comptime**, typically near your router definition.
+
+    ```zig
+    const SignedCookies = pidgn.SignedCookies(.{
+        .secret = "change-me-to-32-random-bytes",
+    });
+    ```
+
+2. **Set a cookie** from a handler:
+
+    ```zig
+    fn login(ctx: *pidgn.Context) !void {
+        // ... authenticate ...
+        SignedCookies.set(ctx, "uid", "42", .{
+            .max_age = 86_400,
+            .http_only = true,
+            .secure = true,
+            .same_site = .lax,
+        });
+        ctx.redirect("/", .see_other);
+    }
+    ```
+
+3. **Read it back** on a later request — a tampered or missing cookie returns `null`:
+
+    ```zig
+    fn profile(ctx: *pidgn.Context) !void {
+        const uid = SignedCookies.get(ctx, "uid") orelse {
+            ctx.redirect("/login", .see_other);
+            return;
+        };
+        // ... use uid
+    }
+    ```
+
+</Steps>
+
+## Encrypted cookies
+
+Same shape — construct with a 32-byte key:
+
+```zig
+// 32 bytes sourced from your secrets store, NOT hardcoded in production.
+const key: [32]u8 = ... ;
+const EncryptedCookies = pidgn.EncryptedCookies(.{ .key = key });
+
+// Set:
+EncryptedCookies.set(ctx, "cart", cart_json, .{ .max_age = 3600 });
+
+// Read — owned by the caller; free when done.
+if (EncryptedCookies.get(ctx, "cart")) |cart| {
+    defer ctx.allocator.free(cart);
+    // ...
+}
+```
+
+Signed cookies' `get` returns a borrowed slice into the request's Cookie header — do **not** free. Encrypted cookies return an allocated slice because decryption needs fresh memory.
+
+## Wire format
+
+**Signed**: `<value>.<url-safe-base64(HMAC-SHA256(value))>`
+
+**Encrypted**: `url-safe-base64(nonce(12) || ciphertext || tag(16))` — standard AES-256-GCM framing.
+
+Neither form is secret about its format, so you can inspect signed cookies in the browser devtools and confirm they contain what you think they do.
+
+## When to use which
+
+| If you... | Use |
+|-----------|-----|
+| Store a user ID or boolean flag the client may see | `SignedCookies` |
+| Store anything the client **should not** see (pricing, tokens, PII) | `EncryptedCookies` |
+| Store data >4 KB | Neither — put it in a session-backed store and reference it from a short cookie |
+| Need both opacity and server-side invalidation | Use a plain session cookie referencing a server-side record |
+
+## Production secrets
+
+Put the secret / key in an environment variable and load it at startup. `pidgn.env.require("COOKIE_SECRET")` will fail fast if the secret is missing, which is almost always what you want.
+
+```zig
+const secret = pidgn.env.require("COOKIE_SECRET"); // []const u8
+const SignedCookies = pidgn.SignedCookies(.{ .secret = secret });
+```
+
+Rotating a secret invalidates every cookie that was signed with the old one. That's fine for signed cookies (users re-authenticate) but painful for encrypted cookies holding long-lived state — plan for a key-rotation strategy if that applies to you.
+
+## Related
+
+- [Sessions and CSRF Protection](/authentication/sessions-and-csrf/) — the session middleware if you need server-side storage.
+- [Security headers](/core/security-headers/) — CSP and HSTS pair naturally with secure cookies.

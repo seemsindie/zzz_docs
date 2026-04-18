@@ -46,7 +46,7 @@ Place error handling first so it catches errors from all downstream middleware. 
 
 ## Built-in middleware
 
-pidgn ships with 20 middleware covering the most common web application needs:
+pidgn ships with a broad set of middleware covering the most common web application needs:
 
 | Middleware | Import | Description |
 |-----------|--------|-------------|
@@ -59,10 +59,18 @@ pidgn ships with 20 middleware covering the most common web application needs:
 | `staticFiles(config)` | `pidgn.staticFiles` | Serves static files from a directory with MIME detection, caching, and ETag support. |
 | `session(config)` | `pidgn.session` | Cookie-based sessions with an in-memory store. Persists assigns across requests. |
 | `csrf(config)` | `pidgn.csrf` | CSRF protection. Generates tokens for safe methods, validates on unsafe methods. |
+| `flash(config)` | `pidgn.flash` | Session-backed one-shot messages that survive a single redirect. See [Flash messages](/core/flash-messages/). |
 | `bearerAuth(config)` | `pidgn.bearerAuth` | Extracts Bearer tokens from the Authorization header into assigns. |
 | `basicAuth(config)` | `pidgn.basicAuth` | Extracts Basic auth credentials (username/password) into assigns. |
 | `jwtAuth(config)` | `pidgn.jwtAuth` | Verifies HMAC-SHA256 JWTs and stores the decoded payload in assigns. |
 | `rateLimit(config)` | `pidgn.rateLimit` | Token-bucket rate limiting per client (identified by header). |
+| `throttle(config)` | `pidgn.throttle` | Sliding-window throttle complementing `rateLimit` (smoother, not bursty). |
+| `ipAllowlist(config)` / `ipBlocklist(config)` | `pidgn.ipAllowlist` / `pidgn.ipBlocklist` | IP allow / block with IPv4 CIDR support. See [IP access](/core/ip-access/). |
+| `csp(config)` | `pidgn.csp` | Emits a `Content-Security-Policy` header. See [Security headers](/core/security-headers/). |
+| `hsts(config)` | `pidgn.hsts` | Emits a `Strict-Transport-Security` header. See [Security headers](/core/security-headers/). |
+| `actionLog(config)` | `pidgn.actionLog` | Per-request audit trail with a pluggable sink. |
+| `localeMiddleware(config)` | `pidgn.localeMiddleware` | Resolves the best locale for the request into `ctx.assigns["locale"]`. See [Locale & i18n](/core/i18n/). |
+| `geoIp(config)` | `pidgn.geoIp` | Populates `geo_country` / `geo_region` / `geo_city` assigns from a pluggable provider. |
 | `requestId(config)` | `pidgn.requestId` | Propagates or generates a unique request ID, stored in assigns and the response header. |
 | `health(config)` | `pidgn.health` | Returns `{"status":"ok"}` at a configurable path (default `/health`). |
 | `metrics(config)` | `pidgn.metrics` | Collects request counts, status codes, latency and serves Prometheus metrics. |
@@ -70,6 +78,19 @@ pidgn ships with 20 middleware covering the most common web application needs:
 | `htmx(config)` | `pidgn.htmx` | Sets htmx-related assigns (`is_htmx`, `htmx_target`) and provides a CDN script tag. |
 | `pidgnJs(config)` | `pidgn.pidgnJs` | Serves the embedded pidgn.js client library at a configurable path. |
 | `swagger.ui(config)` | `pidgn.swagger.ui` | Serves Swagger UI for your OpenAPI spec. |
+
+Beyond the middleware listed above, pidgn also ships a set of **request / response helpers** you can call directly from a handler:
+
+| Helper | Import | What it does |
+|--------|--------|--------------|
+| `SignedCookies(config)` / `EncryptedCookies(config)` | `pidgn.SignedCookies` / `pidgn.EncryptedCookies` | Comptime-bound cookie helpers. HMAC-signed or AES-256-GCM encrypted. See [Secure cookies](/core/secure-cookies/). |
+| `pagination.fromQuery(ctx, opts)` | `pidgn.pagination` | Parses `page` / `per_page` from the query string with clamped bounds. See [Pagination](/core/pagination/). |
+| `sanitize.escapeHtml` / `stripTags` / `normalizeWhitespace` | `pidgn.sanitize` | Input sanitization primitives. |
+| `form.input` / `textarea` / `select` / `checkbox` / `csrfInput` | `pidgn.form` | HTML form element helpers with auto-escaping. See [Form builder](/core/form-builder/). |
+| `userAgent.parse` / `fromContext` | `pidgn.userAgent` | Heuristic User-Agent parser (browser, OS, bot flag). |
+| `range.respondWithRange(ctx, data, content_type)` | `pidgn.range` | Honors HTTP `Range` headers (206 Partial Content). |
+| `i18n.t(...)` / `tn(...)` | `pidgn.i18n` | Translation lookup with placeholder interpolation and pluralization. See [Locale & i18n](/core/i18n/). |
+| `Storage` / `LocalStorage` | `pidgn.Storage` / `pidgn.LocalStorage` | File storage trait with a local-disk backend. See [File storage](/core/storage/). |
 
 ## Using built-in middleware
 

@@ -1,0 +1,98 @@
+---
+title: "File Storage"
+description: "Runtime-dispatched file storage trait with a local-disk backend. Remote backends (S3, GCS) plug into the same vtable."
+---
+
+`pidgn.Storage` is a small vtable-dispatched trait for putting, getting, and URL-generating blobs by key. A `LocalStorage` backend ships with the framework; remote backends (S3, GCS) implement the same interface and are out of scope for the core package.
+
+## Why a trait
+
+Your handler takes a single `Storage` value and works the same whether you're persisting uploads to local disk in development or to S3 in production. The backend swap is one line in your setup.
+
+## Local backend
+
+```zig
+var local: pidgn.LocalStorage = .{
+    .root = "./uploads",
+    .url_prefix = "/uploads", // what the handler will generate URLs against
+};
+const store = local.storage();
+
+// later, from a handler:
+try store.put("avatars/42.png", png_bytes);
+```
+
+### Configuration
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `root` | `[]const u8` | _(required)_ | On-disk directory. Created automatically on first `put`. |
+| `url_prefix` | `[]const u8` | `""` | If non-empty, `url()` returns `prefix/key` instead of `root/key`. Useful when a reverse proxy serves `root` at a public path. |
+
+## The Storage interface
+
+```zig
+pub const Storage = struct {
+    pub fn put(self: Storage, key: []const u8, data: []const u8) StorageError!void;
+    pub fn get(self: Storage, allocator: Allocator, key: []const u8) StorageError![]u8;
+    pub fn delete(self: Storage, key: []const u8) StorageError!void;
+    pub fn exists(self: Storage, key: []const u8) bool;
+    pub fn url(self: Storage, allocator: Allocator, key: []const u8) StorageError![]u8;
+};
+
+pub const StorageError = error{
+    InvalidKey,
+    NotFound,
+    IoError,
+    TooLarge,
+    OutOfMemory,
+};
+```
+
+- `put` creates intermediate directories as needed.
+- `get` returns a caller-owned buffer; remember to free it.
+- `delete` is idempotent (missing files don't error).
+- `url` produces a URL suitable for `<img src>` / `<a href>` / JSON response fields. For S3 it would return a signed URL; for local storage it joins `url_prefix` (or `root`) with `key`.
+
+## Key safety
+
+`LocalStorage` rejects unsafe keys before touching disk:
+
+- Empty keys.
+- Keys starting with `/` (absolute paths).
+- Keys containing a `..` path segment.
+
+This means a handler receiving a user-supplied filename can pass it through to `put` without a separate sanitization pass — a traversal attempt returns `InvalidKey`.
+
+## Typical upload handler
+
+```zig
+fn uploadAvatar(ctx: *pidgn.Context) !void {
+    const file = ctx.file("avatar") orelse {
+        ctx.text(.bad_request, "missing file");
+        return;
+    };
+
+    // Build a safe key.
+    const user_id = ctx.getAssign("user_id").?;
+    const key = try std.fmt.allocPrint(
+        ctx.allocator,
+        "avatars/{s}{s}",
+        .{ user_id, std.fs.path.extension(file.filename) },
+    );
+
+    try store.put(key, file.data);
+
+    const url = try store.url(ctx.allocator, key);
+    try ctx.render(ShowTemplate, .ok, .{ .avatar_url = url });
+}
+```
+
+## Future backends
+
+The same vtable supports S3 / GCS / Azure Blob. S3 in particular requires AWS sig-v4 signing and streaming uploads; it's not yet in-tree. If you're building an S3 backend, the vtable shape is stable — follow `LocalStorage` as a template.
+
+## Related
+
+- [Body parser](/core/routing/#request-bodies) — extracting uploads from multipart form data.
+- [Range requests](/core/range-requests/) — serving files with seek support.

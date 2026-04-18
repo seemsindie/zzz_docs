@@ -1,0 +1,126 @@
+---
+title: "Action Log (Audit Trail)"
+description: "Per-request audit entries to a pluggable sink. Distinct from the structured logger — this targets compliance and forensics, not debugging."
+---
+
+`pidgn.actionLog` writes one compact record per request to a pluggable sink. It captures who did what and when — method, path, status, client IP, and a user identifier the handler populates.
+
+It's a different concern from `structuredLogger`:
+
+| | `structuredLogger` | `actionLog` |
+|---|-------------------|-------------|
+| Target audience | Engineers debugging | Compliance / auditors / forensics |
+| Fields | Detailed, debug-oriented | Compact, action-oriented |
+| Volume | All requests at the configured log level | All requests, small record |
+| Sink | stdout / stderr / file | Database, append-only file, SIEM — your choice |
+
+You can run both in parallel.
+
+## Configuration
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `sink` | `type` | _(required)_ | A struct type with `pub fn write(line: []const u8) void`. |
+| `user_assign_key` | `[]const u8` | `"audit_user"` | Key in `ctx.assigns` where the handler stored a user id. |
+| `client_ip_header` | `[]const u8` | `"X-Forwarded-For"` | Header to read the client IP from. |
+
+## Basic usage
+
+```zig
+const App = pidgn.Router.define(.{
+    .middleware = &.{
+        pidgn.session(.{}),
+        pidgn.actionLog(.{ .sink = pidgn.ActionLogStderrSink }),
+        // ...
+    },
+    .routes = routes,
+});
+```
+
+In your handler, set the user identifier before calling `ctx.next()` — simplest is to do it from an authentication middleware:
+
+```zig
+fn requireAuth(ctx: *pidgn.Context) !void {
+    const user = try authenticate(ctx);
+    // ...
+    ctx.assign("audit_user", user.id_str);
+    try ctx.next();
+}
+```
+
+## The `write` interface
+
+A sink is any type with:
+
+```zig
+pub fn write(line: []const u8) void;
+```
+
+The middleware passes a full line (including trailing newline) per request. Implementations can fire-and-forget or buffer — the middleware doesn't block on writes.
+
+### Built-in stderr sink
+
+```zig
+pidgn.actionLog(.{ .sink = pidgn.ActionLogStderrSink }),
+```
+
+Good for development and for container deployments where stderr gets collected by log infrastructure.
+
+### Custom sinks
+
+Append-only file:
+
+```zig
+const FileSink = struct {
+    pub fn write(line: []const u8) void {
+        // open-append-close is simplest if volume is low.
+        // For higher volume, keep a file descriptor open and share it via an atomic.
+        var buf: [4096]u8 = undefined;
+        var f = std.fs.cwd().openFile("audit.log", .{ .mode = .write_only }) catch return;
+        defer f.close();
+        _ = f.seekFromEnd(0) catch {};
+        var w = f.writer(&buf);
+        w.interface.writeAll(line) catch {};
+        w.interface.flush() catch {};
+    }
+};
+
+pidgn.actionLog(.{ .sink = FileSink }),
+```
+
+Database-backed:
+
+```zig
+const DbSink = struct {
+    // Store the repo in a thread-safe place — a static singleton or a shared
+    // atomic — since `write` has no per-request context.
+    pub fn write(line: []const u8) void {
+        audit_repo.insertLine(line) catch {};
+    }
+};
+```
+
+## Line format
+
+Each entry is a single line ending with `\n`:
+
+```
+<unix_ts> <method> <path> <status> user=<user_id> ip=<client_ip>
+```
+
+Example:
+
+```
+1716240000 POST /posts/42/delete 302 user=alice ip=1.2.3.4
+```
+
+Keep it that simple unless you have a reason to change it — log parsers prefer predictable shapes.
+
+## Retention and rotation
+
+The middleware doesn't rotate. Use your sink's backing store to manage retention — log-rotate on a file, a partition scheme on a DB table, or forwarding to a dedicated service.
+
+## Related
+
+- [Structured logger](/advanced/observability/#structured-logger) — detailed per-request logs for debugging.
+- [IP allowlist / blocklist](/core/ip-access/) — block before the audit-trail sees anything.

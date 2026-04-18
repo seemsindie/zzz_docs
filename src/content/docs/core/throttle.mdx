@@ -1,0 +1,80 @@
+---
+title: "Sliding-Window Throttle"
+description: "Sliding-window request throttle — smoother and more accurate than the bursty token-bucket rate limiter for traffic shaping."
+---
+
+`pidgn.throttle` is a sliding-window request throttle. It complements — not replaces — `pidgn.rateLimit`.
+
+| | `rateLimit` (token bucket) | `throttle` (sliding window) |
+|---|----------------------------|-----------------------------|
+| Algorithm | Fixed-window bucket that refills in full when a window elapses. | Ring buffer of request timestamps; evicts entries older than the window. |
+| Behaviour | Allows bursts — a full bucket means `max_requests` instantly-back-to-back. | Smoother — a client can't fire N requests in a millisecond, then wait. |
+| State per client | 1 counter + 1 timestamp | N timestamps (where N = `max_requests`) |
+| Accuracy | Approximate (favours the caller). | True rate over the last window. |
+
+Reach for `throttle` when you need a fair limit that reflects real sustained rate (e.g. API quotas) and `rateLimit` when you want a simple burst-friendly limit (e.g. login endpoints).
+
+## Configuration
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `max_requests` | `u32` | `60` | How many requests per sliding window. |
+| `window_seconds` | `u32` | `60` | Window length in seconds. |
+| `key_header` | `[]const u8` | `"X-Forwarded-For"` | Header to identify the client. |
+
+The implementation tracks up to 256 distinct client keys with an internal LRU-ish eviction when full (fails open when the store is saturated, so a spike never DoSes legitimate traffic). The per-client ring buffer is sized to `max_requests`.
+
+## Basic usage
+
+```zig
+const App = pidgn.Router.define(.{
+    .middleware = &.{
+        pidgn.throttle(.{ .max_requests = 100, .window_seconds = 60 }),
+        // ...
+    },
+    .routes = routes,
+});
+```
+
+When a client exceeds the window, the middleware responds `429 Too Many Requests` with a `Retry-After` header equal to `window_seconds`.
+
+## Scoping to expensive routes
+
+Global throttling is often too coarse. Put it on the subset of routes that deserve protection:
+
+```zig
+.routes = &.{
+    pidgn.Router.get("/", home),
+    pidgn.Router.get("/posts/:id", showPost),
+
+    pidgn.Router.scope("/api/search", &.{
+        pidgn.throttle(.{ .max_requests = 10, .window_seconds = 60 }),
+    }, &.{
+        pidgn.Router.get("/", search),
+    }),
+},
+```
+
+## Combining throttle and rate-limit
+
+You can stack both if the policies differ — a short burst limit from `rateLimit` and a longer-term fair limit from `throttle`:
+
+```zig
+.middleware = &.{
+    pidgn.rateLimit(.{ .max_requests = 5, .window_seconds = 1 }),   // anti-burst
+    pidgn.throttle(.{ .max_requests = 500, .window_seconds = 60 }), // sustained-rate cap
+},
+```
+
+A request that trips `rateLimit` never reaches `throttle`, so the ordering matters only if you care about which 429 is returned first.
+
+## Caveats
+
+- **Header trust.** The throttle identifies clients by `X-Forwarded-For` by default — only use that behind a trusted proxy, otherwise clients can spoof the header and bypass the limit.
+- **Process-local state.** The ring buffers are per-process. In a multi-process deployment a client gets N times the allowance. For a true distributed limit use a shared Redis/memcached-backed counter (planned for Phase 14).
+- **Fail-open at saturation.** When more than 256 unique clients are active, new clients are let through. That's the right trade-off for web traffic — a DDoS of unique IPs shouldn't double-DoS you by filling the limiter.
+
+## Related
+
+- [Rate limiting](/authentication/rate-limiting/) — the token-bucket variant.
+- [IP allowlist / blocklist](/core/ip-access/) — block before the throttle ever sees the request.

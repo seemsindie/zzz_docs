@@ -82,6 +82,24 @@ cache.clear();
 
 This is useful when a write operation (POST, PUT, DELETE) should invalidate related cached GET responses.
 
+### Tag-based invalidation
+
+The underlying `pidgn.Cache` type supports tagging entries so you can invalidate groups of related keys with one call. Useful when a write affects many cached pages — edit a user and drop every cache entry tagged with their ID:
+
+```zig
+var c: pidgn.Cache([]const u8) = .{};
+
+c.putWithTag("user:42:profile", profile_html, 0, "user:42");
+c.putWithTag("user:42:posts",   posts_html,   0, "user:42");
+c.putWithTag("user:42:feed",    feed_html,    0, "user:42");
+
+// After the user edits their profile:
+const cleared = c.invalidateTag("user:42");
+// cleared == 3
+```
+
+The tag is any string — a resource ID, a group name, a type+id pair. An entry without a tag (via plain `put`) is unaffected by tag invalidation.
+
 ## Verifying cache behavior
 
 Check the `X-Cache` response header:

@@ -1,0 +1,186 @@
+---
+title: "Locale & i18n"
+description: "Accept-Language negotiation, translation catalogs with placeholder interpolation, and count-aware plural selection."
+---
+
+import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
+
+pidgn ships two pieces for internationalization:
+
+- **`localeMiddleware`** resolves the best locale for each request (query param, cookie, `Accept-Language` header, default).
+- **`pidgn.i18n`** is a translation runtime — comptime-defined catalogs, placeholder interpolation, plural selection.
+
+## Locale detection middleware
+
+Resolution order (first match wins):
+
+1. Query param — default `?lang=...`
+2. Cookie — default `locale=...`
+3. `Accept-Language` header (highest `q` value that matches an available locale)
+4. Configured `default`
+
+The middleware writes the result to `ctx.assigns["locale"]`. Handlers and templates read it from there.
+
+### Configuration
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `available` | `[]const []const u8` | _(required)_ | Locales you ship translations for. |
+| `default` | `[]const u8` | `"en"` | Fallback when nothing matches. |
+| `cookie_name` | `[]const u8` | `"locale"` | Empty disables cookie override. |
+| `query_param` | `[]const u8` | `"lang"` | Empty disables query override. |
+
+Matching is prefix-based — an `Accept-Language` of `en-US` matches an available `en`.
+
+### Usage
+
+```zig
+const App = pidgn.Router.define(.{
+    .middleware = &.{
+        pidgn.localeMiddleware(.{
+            .available = &.{ "en", "fr", "de", "es" },
+            .default = "en",
+        }),
+        // ...
+    },
+    .routes = routes,
+});
+
+fn index(ctx: *pidgn.Context) !void {
+    const locale = ctx.getAssign("locale") orelse "en";
+    // ... use it to pick translations
+}
+```
+
+You can also use `pidgn.detectLocale(ctx, config)` or `pidgn.negotiateLocale(header, available)` directly if you don't want the middleware.
+
+## Translation runtime
+
+Catalogs are plain comptime data. No file loading at startup — the whole translation table is in the binary.
+
+```zig
+pub const translations = pidgn.Translations{
+    .default_locale = "en",
+    .locales = &.{
+        .{ .code = "en", .entries = &.{
+            .{ .key = "greet", .value = "Hello, {name}!" },
+            .{ .key = "items", .plurals = &.{
+                .{ .count = 0, .value = "no items" },
+                .{ .count = 1, .value = "1 item" },
+                .{ .count = pidgn.Translations.other_count, .value = "{count} items" },
+            } },
+        } },
+        .{ .code = "fr", .entries = &.{
+            .{ .key = "greet", .value = "Bonjour, {name} !" },
+            .{ .key = "items", .plurals = &.{
+                .{ .count = 0, .value = "aucun article" },
+                .{ .count = 1, .value = "1 article" },
+                .{ .count = pidgn.Translations.other_count, .value = "{count} articles" },
+            } },
+        } },
+    },
+};
+```
+
+### Looking up a translation
+
+<Tabs>
+<TabItem label="Simple lookup">
+
+```zig
+const msg = try pidgn.i18n.t(
+    ctx.allocator,
+    translations,
+    ctx.getAssign("locale") orelse "en",
+    "greet",
+    .{ .name = @as([]const u8, "Ivan") },
+);
+defer ctx.allocator.free(msg);
+// "Hello, Ivan!" in en; "Bonjour, Ivan !" in fr
+```
+
+</TabItem>
+<TabItem label="Plural-aware lookup">
+
+```zig
+const msg = try pidgn.i18n.tn(
+    ctx.allocator,
+    translations,
+    locale,
+    "items",
+    n,
+    .{ .count = n },
+);
+defer ctx.allocator.free(msg);
+```
+
+- `n == 0` → `"no items"` (or `"aucun article"` in fr).
+- `n == 1` → `"1 item"`.
+- Anything else → the `other_count` form, interpolated with `count = n`.
+
+</TabItem>
+</Tabs>
+
+### Fallback chain
+
+`t` and `tn` both fall back in this order:
+
+1. Requested locale.
+2. `default_locale` from the `Translations` struct.
+3. The raw key itself (so missing keys show up clearly in development).
+
+### Placeholders
+
+Both `{name}` and numeric placeholders (`{count}`) are supported. Unknown placeholders are emitted verbatim — not replaced with empty strings — so missing args surface loudly.
+
+## Typical wiring
+
+<Steps>
+
+1. **Put your translations in a module**:
+
+    ```zig
+    // src/translations.zig
+    const pidgn = @import("pidgn");
+    pub const catalog = pidgn.Translations{ ... };
+    ```
+
+2. **Register the locale middleware** in your app:
+
+    ```zig
+    pidgn.localeMiddleware(.{
+        .available = &.{ "en", "fr", "de" },
+        .default = "en",
+    }),
+    ```
+
+3. **Translate inside handlers** and pass the rendered strings into your templates:
+
+    ```zig
+    const translations = @import("translations.zig").catalog;
+
+    fn welcome(ctx: *pidgn.Context) !void {
+        const locale = ctx.getAssign("locale") orelse "en";
+        const heading = try pidgn.i18n.t(ctx.allocator, translations, locale, "greet", .{
+            .name = user.name,
+        });
+        try ctx.render(Template, .ok, .{ .heading = heading });
+    }
+    ```
+
+</Steps>
+
+## Choosing the locale cookie lifetime
+
+If you expose a user-selectable locale, set it in a cookie with a reasonable `max_age` so repeat visits don't redo Accept-Language negotiation:
+
+```zig
+ctx.setCookie("locale", "fr", .{ .max_age = 365 * 24 * 3600, .path = "/" });
+```
+
+The middleware reads it automatically on subsequent requests.
+
+## Limitations
+
+- Translations live in-memory. Editing a string requires a rebuild. For copy-heavy apps with frequent edits, wrap `Translations` with a hot-reloadable loader.
+- Plural rules are count-matching, not CLDR — "1", "0", and `other_count`. Languages with more plural forms (Russian, Arabic, Polish) need more custom plural entries for each distinct form.

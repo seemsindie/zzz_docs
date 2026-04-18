@@ -1,0 +1,71 @@
+---
+title: "Range Requests"
+description: "HTTP Range header support (RFC 7233 subset) — return 206 Partial Content for byte-addressable resources like videos and downloads."
+---
+
+`pidgn.range` gives handlers a helper to honour HTTP `Range` requests. It's the mechanism behind seekable video playback, resumable downloads, and chunked fetch patterns.
+
+Only single-range requests are supported — `multipart/byteranges` responses are intentionally out of scope.
+
+## Quick usage
+
+```zig
+fn serveVideo(ctx: *pidgn.Context) !void {
+    const data = try readVideo(ctx.allocator, "videos/intro.mp4");
+    pidgn.range.respondWithRange(ctx, data, "video/mp4");
+}
+```
+
+`respondWithRange` does the right thing in both cases:
+
+- **No Range header, or malformed/unsatisfiable Range.** Responds `200 OK` with the full body and `Accept-Ranges: bytes`.
+- **Valid Range.** Responds `206 Partial Content` with only the requested bytes, plus `Content-Range` and `Accept-Ranges` headers.
+
+## Supported Range forms
+
+`Range: bytes=START-END`:
+
+| Header | Behaviour |
+|--------|-----------|
+| `bytes=10-19` | Return bytes 10 through 19 inclusive (10 bytes). |
+| `bytes=50-` | Return from byte 50 to end. |
+| `bytes=-20` | Return the last 20 bytes. |
+| `bytes=0-10,20-30` | Rejected (multi-range not supported). |
+| `items=0-10` | Rejected (non-bytes unit). |
+
+An invalid or out-of-bounds Range falls back to a 200 with the full body. Pure RFC would return 416 — pidgn opts for 200 to stay compatible with naive clients that speculatively send Range headers they don't actually need.
+
+## Low-level: parse without responding
+
+If you want to stream bytes from disk without loading the whole file into memory, use `parse` directly:
+
+```zig
+const hdr = ctx.request.header("Range");
+if (pidgn.range.parse(hdr, total_size)) |r| {
+    // r.start, r.end_inclusive, r.total, r.len()
+    // Seek your file to r.start, read r.len() bytes, emit a 206.
+} else {
+    // Either no Range header or it was unsatisfiable — 200 with full body.
+}
+```
+
+The `Range` struct:
+
+```zig
+pub const Range = struct {
+    start: u64,
+    end_inclusive: u64,
+    total: u64,
+
+    pub fn len(self: Range) u64 { return self.end_inclusive + 1 - self.start; }
+};
+```
+
+## When not to use
+
+- **Small resources.** For anything under a MB, `respondWithRange` works but is a no-op in the typical case — it's mainly there for tools and browsers that send `Range: bytes=0-` speculatively for big media.
+- **Dynamically-generated responses.** Range is about byte-addressable static-ish resources. A dynamically-paginated JSON API should use `offset`/`limit` (see [Pagination](/core/pagination/)) instead.
+
+## Related
+
+- [Static files middleware](/core/static-files/) — serves files from disk; doesn't emit Range responses today, but may in a future release.

@@ -1,0 +1,102 @@
+---
+title: "Pagination"
+description: "Parse page / per_page or offset / limit from the request query and derive page metadata for list endpoints."
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+`pidgn.pagination` parses pagination parameters from the request query, clamps them to sensible bounds, and exposes the derived `offset`/`limit` plus page metadata for envelope construction and navigation links.
+
+It never fails — invalid or missing values fall back to the configured defaults.
+
+## Configuration
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `default_per_page` | `u32` | `20` | Used when the request doesn't specify. |
+| `max_per_page` | `u32` | `100` | Upper clamp — a client asking for 9999 gets this instead. |
+| `min_per_page` | `u32` | `1` | Lower clamp. |
+
+## Basic usage
+
+```zig
+fn index(ctx: *pidgn.Context) !void {
+    const p = pidgn.pagination.fromQuery(ctx, .{ .max_per_page = 50 });
+
+    // Use with pidgn_db:
+    const posts = try db.all(Post, .{
+        .where = .{},
+        .limit = p.limit,
+        .offset = p.offset,
+    });
+
+    // Build response envelope:
+    const total = try db.count(Post, .{});
+    const meta = p.meta(total);
+
+    try ctx.render(IndexTemplate, .ok, .{
+        .posts = posts,
+        .page = meta.page,
+        .total_pages = meta.total_pages,
+        .has_prev = meta.has_prev,
+        .has_next = meta.has_next,
+    });
+}
+```
+
+## Supported query params
+
+Handlers accept both styles — `page` wins if both are specified:
+
+<Tabs>
+<TabItem label="page / per_page">
+
+```
+GET /posts?page=3&per_page=25
+```
+
+Produces `Page{ .page = 3, .per_page = 25, .offset = 50, .limit = 25 }`.
+
+</TabItem>
+<TabItem label="offset / limit">
+
+```
+GET /posts?offset=40&limit=20
+```
+
+Produces `Page{ .page = 3, .per_page = 20, .offset = 40, .limit = 20 }` (page is derived).
+
+</TabItem>
+</Tabs>
+
+## Page metadata
+
+Call `page.meta(total)` where `total` is the full row count (usually a `SELECT COUNT(*)`):
+
+```zig
+pub const Meta = struct {
+    page: u32,
+    per_page: u32,
+    total: u64,
+    total_pages: u32,
+    has_prev: bool,
+    has_next: bool,
+};
+```
+
+`has_prev` / `has_next` make template-side navigation links a one-liner:
+
+```html
+{{#if has_prev}}
+  <a href="?page={{prev_page}}">Previous</a>
+{{/if}}
+{{#if has_next}}
+  <a href="?page={{next_page}}">Next</a>
+{{/if}}
+```
+
+## Notes
+
+- **Invalid input is coerced, not rejected.** `?page=abc` or `?per_page=-5` both fall back to defaults rather than returning 400. If you want strict validation, use changesets on the query params instead.
+- **Very large `offset` on a large table is slow.** This is a database concern, not a pagination-helper concern — consider cursor-based pagination for deep browsing.
+- **Stateless.** This helper has no database or cache side effects — it only transforms the query string.

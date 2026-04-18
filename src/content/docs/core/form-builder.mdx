@@ -1,0 +1,125 @@
+---
+title: "Form Builder"
+description: "Small HTML form-element helpers with automatic attribute escaping, plus shortcuts for CSRF and HTTP method-override fields."
+---
+
+`pidgn.form` produces raw HTML strings for form elements with attribute values HTML-escaped automatically. It composes with any rendering strategy — use it from a handler, a template partial, or a layout. For full form-state management pair it with changesets from `pidgn_db`.
+
+## Available helpers
+
+| Function | Produces |
+|----------|----------|
+| `input(alloc, opts)` | `<input>` |
+| `textarea(alloc, opts)` | `<textarea>...</textarea>` |
+| `select(alloc, opts)` | `<select><option>...</option></select>` |
+| `checkbox(alloc, opts)` | `<input type="checkbox">` |
+| `csrfInput(alloc, token)` | Hidden `_csrf_token` field. |
+| `methodInput(alloc, method)` | Hidden `_method` field (HTTP verb spoofing). |
+
+Each helper takes the request allocator as its first argument and returns an owned `[]u8`. Render it into your template's data struct as a pre-built HTML fragment (`{{{field}}}` — use triple-brace to skip re-escaping).
+
+## Inputs
+
+```zig
+const email = try pidgn.form.input(ctx.allocator, .{
+    .name = "email",
+    .type = "email",
+    .value = user.email,
+    .placeholder = "you@example.com",
+    .required = true,
+    .class = "input input-bordered",
+});
+```
+
+All `opts` fields map to their HTML attribute. `value`, `placeholder`, and `class` are HTML-escaped automatically, so pasting user-supplied content directly is safe.
+
+## Textarea
+
+```zig
+const bio = try pidgn.form.textarea(ctx.allocator, .{
+    .name = "bio",
+    .value = user.bio,
+    .rows = 6,
+    .cols = 50,
+});
+```
+
+The `value` is escaped and inserted as text content (not as an attribute).
+
+## Select with options
+
+```zig
+const countries = [_]pidgn.form.Option{
+    .{ .value = "us", .label = "United States" },
+    .{ .value = "ca", .label = "Canada" },
+    .{ .value = "uk", .label = "United Kingdom" },
+};
+
+const html = try pidgn.form.select(ctx.allocator, .{
+    .name = "country",
+    .options = &countries,
+    .selected = user.country, // adds `selected` to the matching option
+    .class = "select select-bordered",
+});
+```
+
+## Checkbox
+
+```zig
+const agree = try pidgn.form.checkbox(ctx.allocator, .{
+    .name = "terms",
+    .checked = false,
+});
+```
+
+## CSRF token
+
+If you have the CSRF middleware active, read the token out of assigns and paint a hidden input into every POST form:
+
+```zig
+const token = ctx.getAssign("csrf_token") orelse "";
+const csrf = try pidgn.form.csrfInput(ctx.allocator, token);
+```
+
+## Method override
+
+For frameworks that honour `_method` for spoofing PUT / DELETE from HTML forms, use `methodInput`:
+
+```zig
+const method = try pidgn.form.methodInput(ctx.allocator, "DELETE");
+```
+
+Then:
+
+```html
+<form action="/posts/42" method="POST">
+  {{{method}}}
+  {{{csrf}}}
+  <button>Delete</button>
+</form>
+```
+
+## Typical handler
+
+```zig
+fn edit(ctx: *pidgn.Context) !void {
+    const user = ... ;
+
+    try ctx.render(EditTemplate, .ok, .{
+        .csrf = try pidgn.form.csrfInput(ctx.allocator, ctx.getAssign("csrf_token") orelse ""),
+        .email = try pidgn.form.input(ctx.allocator, .{
+            .name = "email", .type = "email", .value = user.email, .required = true,
+        }),
+        .country = try pidgn.form.select(ctx.allocator, .{
+            .name = "country", .options = &countries, .selected = user.country,
+        }),
+    });
+}
+```
+
+All allocations live in `ctx.allocator` (the per-request arena), so there's no explicit free to call — the arena gets reset after the response is sent.
+
+## Related
+
+- [Input sanitization](/core/sanitize/) — escape/strip helpers you'll reach for on the read side.
+- [Sessions and CSRF Protection](/authentication/sessions-and-csrf/) — the middleware that produces the token `csrfInput` embeds.
