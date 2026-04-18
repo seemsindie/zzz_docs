@@ -132,6 +132,45 @@ try ctx.render(Tmpl, .ok, .{ .count = "3" });
 try ctx.render(Tmpl, .ok, .{ .count = @as(u32, 3) });
 ```
 
+### `t` (translate)
+
+Looks up a translation by key. The pipe input is the key itself — either a quoted literal or a data-struct field holding a key string.
+
+```html
+{{"welcome_title" | t}}     <!-- static key -->
+{{section.heading | t}}      <!-- key computed in the handler -->
+```
+
+Requires that the app has registered a catalog via `pidgn.i18n.setGlobal(&catalog)`. The current request locale is read from `ctx.assigns["locale"]` (populated by `pidgn.localeMiddleware`), falling back to the catalog's `default_locale`.
+
+If no catalog is installed, the pipe falls back to the key unchanged — handy in tests, scripts, and partial deployments.
+
+HTML escaping follows the brace style: `{{"x" | t}}` escapes the translation (default), `{{{"x" | t}}}` emits it raw.
+
+See [Locale & i18n](/core/i18n/) for the full translation runtime, `.po` and JSON loaders, and `ctx.t` for handler-side pre-rendering.
+
+### `tn` (plural translate)
+
+Picks a plural form by count and substitutes `{count}` if present. The pipe **input** is the count (an integer field); the pipe **arg** is the key.
+
+```html
+{{user_count | tn:"users_online"}}
+```
+
+Given a catalog entry like:
+
+```json
+{ "users_online": { "0": "nobody online", "1": "1 user online", "other": "{count} users online" } }
+```
+
+| Input | Output |
+| --- | --- |
+| `0` | `nobody online` |
+| `1` | `1 user online` |
+| `5` | `5 users online` |
+
+Only the `{count}` placeholder is substituted at template level. For translations with other placeholders (like `{name}`), pre-render with `ctx.t` in the handler.
+
 ### `format_date`
 
 Formats a Unix timestamp (seconds since epoch) into a human-readable date string. The format pattern uses these tokens:

@@ -218,23 +218,69 @@ The explicit `pidgn.i18n.t(...)` form is still available as an escape hatch when
 
 ## Template integration
 
-The template engine doesn't call `t()` directly — pipes don't have render-time state. Pre-render in the handler and pass the strings through the data struct:
+Templates can call translations directly via two pipes that the framework installs on every `ctx.render*`: `t` for lookups and `tn` for plurals.
+
+```html
+<h1>{{"welcome_title" | t}}</h1>
+<p>{{user_count | tn:"users_online"}}</p>
+```
+
+The handler no longer needs to pre-render string fields just for labels — the pipes read the process-global catalog (set via `setGlobal`) and the request locale from `ctx.assigns["locale"]`.
+
+### `{{"key" | t}}` — lookup
+
+The pipe input is the translation key. A quoted literal (`"welcome_title"`) is the common form; a data field holding a key string works too:
+
+```html
+{{"welcome_title" | t}}           <!-- static key -->
+{{section.heading | t}}            <!-- key computed in the handler -->
+```
+
+The result is HTML-escaped by default; use triple braces to emit raw HTML when the translation legitimately contains markup:
+
+```html
+{{{"rich_welcome" | t}}}
+```
+
+If no catalog is installed, the pipe falls back to the key unchanged — safe in tests, scripts, and partial deployments.
+
+### `{{count | tn:"key"}}` — plural
+
+The pipe **input** is the count (any integer field in the data struct); the pipe **arg** is the key. If the selected plural form contains `{count}`, it's substituted with the numeric input automatically:
+
+```json
+{
+  "en": {
+    "items": { "0": "no items", "1": "1 item", "other": "{count} items" }
+  }
+}
+```
+
+```html
+{{count | tn:"items"}}
+<!-- count = 0 → "no items" -->
+<!-- count = 1 → "1 item" -->
+<!-- count = 5 → "5 items" -->
+```
+
+No other placeholder names are supported at template level. For translations with arbitrary `{name}`-style placeholders, pre-render in the handler (see below).
+
+### Still pre-render for complex placeholders
+
+The `t`/`tn` pipes cover the bulk of template strings — labels, headings, counts — but they don't accept `{name}`-style args. For translations with other placeholders, use `ctx.t` in the handler and pass the result through the data struct:
 
 ```zig
-fn index(ctx: *pidgn.Context) !void {
+fn welcome(ctx: *pidgn.Context) !void {
     try ctx.render(Template, .ok, .{
-        .title = try ctx.t("welcome_title", .{}),
-        .count = try ctx.tn("item_count", n, .{ .count = n }),
-        .user = user,
+        .heading = try ctx.t("greet", .{ .name = user.name }),
+        .count = n,
     });
 }
 ```
 
-Template:
-
 ```html
-<h1>{{title}}</h1>
-<p>{{count}}</p>
+<h1>{{heading}}</h1>
+<p>{{count | tn:"items"}}</p>
 ```
 
 ## Typical wiring
