@@ -159,6 +159,16 @@ const pidgn = @import("pidgn");
 | **pidgn_mailer** | Email sending | Add `pidgn_mailer` dependency |
 | **pidgn_template** | Template engine | Add `pidgn_template` dependency |
 
+## Editor support
+
+Install the **[Pidgn Templates](https://marketplace.visualstudio.com/items?itemName=Pidgn.pidgn-templates)** extension for syntax highlighting, code folding, auto-closing pairs, and a full set of snippets for `.html.pidgn` files in VS Code:
+
+```bash
+ext install Pidgn.pidgn-templates
+```
+
+It covers every block tag (`{{#if}}`, `{{#each}}`, `{{#with}}`, partials, layouts), every built-in pipe (including the new i18n pipes `t` and `tn`), and ships snippets for common patterns — flash messages, CSRF fields, pagination navs.
+
 ## Next steps
 
 - Follow the [Quick Start](/getting-started/quick-start/) tutorial
